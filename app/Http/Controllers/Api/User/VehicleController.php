@@ -10,117 +10,189 @@ use Illuminate\Support\Facades\DB;
 
 class VehicleController extends Controller
 {
-    /**
-     * GET /vehicles
-     */
+    // ─────────────────────────────────────────────
+    // INDEX — Mes véhicules
+    // GET /connecte/vehicles
+    // ─────────────────────────────────────────────
     public function index(Request $request): JsonResponse
     {
-        $vehicles = $request->user()
-            ->vehicles()
-            ->withCount(['documents', 'maintenanceLogs', 'fuelLogs'])
+        $userId = $request->user()->id_user_carbu;
+
+        $vehicles = DB::table('vehicles')
+            ->where('user_id', $userId)
+            ->whereNull('deleted_at')
             ->orderByDesc('is_primary')
-            ->orderByDesc('created_at')
+            ->orderBy('brand')
             ->get();
 
         return response()->json(['success' => true, 'data' => $vehicles]);
     }
 
-    /**
-     * POST /vehicles
-     */
+    // ─────────────────────────────────────────────
+    // STORE — Ajouter un véhicule
+    // POST /connecte/vehicles
+    // ─────────────────────────────────────────────
     public function store(Request $request): JsonResponse
     {
-        $user = $request->user();
+        $userId = $request->user()->id_user_carbu;
 
-        // Vérifier limite gratuit : 1 véhicule
-        if (!$user->isPremium() && $user->vehicles()->count() >= 1) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Passez en Premium pour ajouter plusieurs véhicules.',
-                'upgrade_required' => true,
-            ], 403);
-        }
-
-        $data = $request->validate([
-            'brand'        => 'required|string|max:60',
-            'model'        => 'required|string|max:60',
-            'year'         => 'required|integer|min:1950|max:' . (date('Y') + 1),
+        $validated = $request->validate([
+            'brand'        => 'required|string|max:100',
+            'model'        => 'required|string|max:100',
+            'year'         => 'required|integer|min:1970|max:' . (date('Y') + 1),
             'plate_number' => 'nullable|string|max:20',
             'fuel_type'    => 'required|in:essence,gasoil,hybride,electrique',
-            'color'        => 'nullable|string|max:40',
             'mileage'      => 'nullable|integer|min:0',
+            'color'        => 'nullable|string|max:50',
         ]);
 
-        $data['user_id']   = $user->id;
-        $data['is_primary']= $user->vehicles()->count() === 0; // Premier = principal
+        // Si c'est le premier véhicule, il devient principal
+        $isPrimary = !DB::table('vehicles')->where('user_id', $userId)->whereNull('deleted_at')->exists();
 
-        $vehicle = Vehicle::create($data);
+        $id = DB::table('vehicles')->insertGetId(array_merge($validated, [
+            'user_id'    => $userId,
+            'is_primary' => $isPrimary,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]));
+
+        $vehicle = DB::table('vehicles')->where('id_vehicule', $id)->first();
+
+        return response()->json(['success' => true, 'message' => 'Véhicule ajouté.', 'data' => $vehicle], 201);
+    }
+
+    // ─────────────────────────────────────────────
+    // SHOW — Détail d'un véhicule
+    // GET /connecte/vehicles/{id}
+    // ─────────────────────────────────────────────
+    public function show(Request $request, int $id): JsonResponse
+    {
+        $vehicle = $this->findUserVehicle($request->user()->id_user_carbu, $id);
+
+        if (!$vehicle) {
+            return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
+        }
+
+        // Dernier plein + dernier entretien
+        $lastFuel = DB::table('fuel_logs')
+            ->where('vehicle_id', $id)
+            ->orderByDesc('filled_at')
+            ->first(['id_fuel_log', 'fuel_type', 'liters', 'total_cost', 'mileage', 'filled_at']);
+
+        $lastMaintenance = DB::table('maintenance_logs')
+            ->where('vehicle_id', $id)
+            ->whereNull('deleted_at')
+            ->orderByDesc('done_at')
+            ->first(['id_maint_log', 'type', 'title', 'cost', 'done_at', 'next_service_date']);
 
         return response()->json([
             'success' => true,
-            'message' => 'Véhicule ajouté.',
-            'data'    => $vehicle,
-        ], 201);
+            'data'    => array_merge((array) $vehicle, [
+                'last_fuel'        => $lastFuel,
+                'last_maintenance' => $lastMaintenance,
+            ]),
+        ]);
     }
 
-    /**
-     * GET /vehicles/{id}
-     */
-    public function show(Request $request, int $id): JsonResponse
-    {
-        $vehicle = $request->user()->vehicles()
-            ->with(['documents', 'maintenanceLogs' => fn($q) => $q->latest('done_at')->limit(5)])
-            ->findOrFail($id);
-
-        return response()->json(['success' => true, 'data' => $vehicle]);
-    }
-
-    /**
-     * PUT /vehicles/{id}
-     */
+    // ─────────────────────────────────────────────
+    // UPDATE — Modifier un véhicule
+    // PUT /connecte/vehicles/{id}
+    // ─────────────────────────────────────────────
     public function update(Request $request, int $id): JsonResponse
     {
-        $vehicle = $request->user()->vehicles()->findOrFail($id);
+        $userId = $request->user()->id_user_carbu;
 
-        $data = $request->validate([
-            'brand'        => 'sometimes|string|max:60',
-            'model'        => 'sometimes|string|max:60',
-            'year'         => 'sometimes|integer|min:1950|max:' . (date('Y') + 1),
-            'plate_number' => 'nullable|string|max:20',
+        if (!$this->findUserVehicle($userId, $id)) {
+            return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
+        }
+
+        $validated = $request->validate([
+            'brand'        => 'sometimes|string|max:100',
+            'model'        => 'sometimes|string|max:100',
+            'year'         => 'sometimes|integer|min:1970|max:' . (date('Y') + 1),
+            'plate_number' => 'sometimes|nullable|string|max:20',
             'fuel_type'    => 'sometimes|in:essence,gasoil,hybride,electrique',
-            'color'        => 'nullable|string|max:40',
-            'mileage'      => 'nullable|integer|min:0',
+            'mileage'      => 'sometimes|nullable|integer|min:0',
+            'color'        => 'sometimes|nullable|string|max:50',
         ]);
 
-        $vehicle->update($data);
+        DB::table('vehicles')
+            ->where('id_vehicule', $id)
+            ->update(array_merge($validated, ['updated_at' => now()]));
 
-        return response()->json(['success' => true, 'message' => 'Véhicule mis à jour.', 'data' => $vehicle->fresh()]);
+        $vehicle = DB::table('vehicles')->where('id_vehicule', $id)->first();
+
+        return response()->json(['success' => true, 'message' => 'Véhicule mis à jour.', 'data' => $vehicle]);
     }
 
-    /**
-     * DELETE /vehicles/{id}
-     */
+    // ─────────────────────────────────────────────
+    // DESTROY — Supprimer un véhicule
+    // DELETE /connecte/vehicles/{id}
+    // ─────────────────────────────────────────────
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $vehicle = $request->user()->vehicles()->findOrFail($id);
-        $vehicle->delete();
+        $userId = $request->user()->id_user_carbu;
+
+        if (!$this->findUserVehicle($userId, $id)) {
+            return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
+        }
+
+        DB::table('vehicles')
+            ->where('id_vehicule', $id)
+            ->update(['deleted_at' => now()]);
+
+        // Si c'était le principal, promouvoir le suivant
+        $wasPrimary = DB::table('vehicles')->where('id_vehicule', $id)->value('is_primary');
+        if ($wasPrimary) {
+            $next = DB::table('vehicles')
+                ->where('user_id', $userId)
+                ->whereNull('deleted_at')
+                ->where('id_vehicule', '!=', $id)
+                ->first('id_vehicule');
+
+            if ($next) {
+                DB::table('vehicles')->where('id_vehicule', $next->id_vehicule)->update(['is_primary' => true]);
+            }
+        }
 
         return response()->json(['success' => true, 'message' => 'Véhicule supprimé.']);
     }
 
-    /**
-     * PATCH /vehicles/{id}/set-primary
-     */
+    // ─────────────────────────────────────────────
+    // SET PRIMARY — Véhicule principal
+    // PATCH /connecte/vehicles/{id}/set-primary
+    // ─────────────────────────────────────────────
     public function setPrimary(Request $request, int $id): JsonResponse
     {
-        $user    = $request->user();
-        $vehicle = $user->vehicles()->findOrFail($id);
+        $userId = $request->user()->id_user_carbu;
 
-        DB::transaction(function () use ($user, $vehicle) {
-            $user->vehicles()->update(['is_primary' => false]);
-            $vehicle->update(['is_primary' => true]);
-        });
+        if (!$this->findUserVehicle($userId, $id)) {
+            return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
+        }
+
+        // Retirer le statut principal de tous
+        DB::table('vehicles')
+            ->where('user_id', $userId)
+            ->whereNull('deleted_at')
+            ->update(['is_primary' => false]);
+
+        // Définir le nouveau principal
+        DB::table('vehicles')
+            ->where('id_vehicule', $id)
+            ->update(['is_primary' => true, 'updated_at' => now()]);
 
         return response()->json(['success' => true, 'message' => 'Véhicule principal défini.']);
+    }
+
+    // ─────────────────────────────────────────────
+    // HELPER
+    // ─────────────────────────────────────────────
+    private function findUserVehicle(int $userId, int $vehicleId): ?object
+    {
+        return DB::table('vehicles')
+            ->where('id_vehicule', $vehicleId)
+            ->where('user_id', $userId)
+            ->whereNull('deleted_at')
+            ->first();
     }
 }

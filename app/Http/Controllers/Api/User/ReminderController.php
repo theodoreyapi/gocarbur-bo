@@ -6,122 +6,184 @@ use App\Http\Controllers\Controller;
 use App\Models\Reminder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class ReminderController extends Controller
 {
-    /**
-     * GET /reminders
-     */
+    // ─────────────────────────────────────────────
+    // INDEX — Rappels actifs
+    // GET /connecte/reminders
+    // ─────────────────────────────────────────────
     public function index(Request $request): JsonResponse
     {
-        $reminders = $request->user()->reminders()
-            ->with(['vehicle:id,brand,model,plate_number', 'document:id,type,expiry_date'])
-            ->where('is_dismissed', false)
-            ->when($request->type, fn($q) => $q->where('type', $request->type))
-            ->orderBy('remind_at')
-            ->paginate(20);
+        $userId = $request->user()->id_user_carbu;
+        $limit  = $request->input('limit', 20);
+        $page   = max(1, (int) $request->input('page', 1));
 
-        return response()->json(['success' => true, 'data' => $reminders]);
+        $query = DB::table('reminders')
+            ->where('user_id', $userId)
+            ->where('is_dismissed', false)
+            ->orderBy('remind_at');
+
+        $total = $query->count();
+        $items = $query->offset(($page - 1) * $limit)->limit($limit)->get();
+
+        return response()->json([
+            'success' => true,
+            'data'    => $items,
+            'meta'    => ['total' => $total, 'page' => $page, 'limit' => $limit],
+        ]);
     }
 
-    /**
-     * GET /reminders/upcoming
-     * Pour le dashboard : rappels dans les 60 prochains jours
-     */
+    // ─────────────────────────────────────────────
+    // UPCOMING — Rappels à venir (dashboard)
+    // GET /connecte/reminders/upcoming
+    // ─────────────────────────────────────────────
     public function upcoming(Request $request): JsonResponse
     {
-        $reminders = $request->user()->reminders()
-            ->with(['vehicle:id,brand,model', 'document:id,type'])
+        $userId = $request->user()->id_user_carbu;
+        $days   = $request->input('days', 30); // horizon en jours
+
+        $reminders = DB::table('reminders')
+            ->where('user_id', $userId)
             ->where('is_dismissed', false)
-            ->where('is_sent', false)
-            ->whereBetween('remind_at', [now(), now()->addDays(60)])
+            ->where('remind_at', '>=', now()->toDateString())
+            ->where('remind_at', '<=', now()->addDays($days)->toDateString())
             ->orderBy('remind_at')
-            ->limit(10)
             ->get();
 
         return response()->json(['success' => true, 'data' => $reminders]);
     }
 
-    /**
-     * POST /reminders
-     */
+    // ─────────────────────────────────────────────
+    // STORE — Créer un rappel
+    // POST /connecte/reminders
+    // ─────────────────────────────────────────────
     public function store(Request $request): JsonResponse
     {
-        $data = $request->validate([
-            'vehicle_id'         => 'nullable|integer|exists:vehicles,id',
-            'document_id'        => 'nullable|integer|exists:documents,id',
+        $userId = $request->user()->id_user_carbu;
+
+        $validated = $request->validate([
             'type'               => 'required|in:expiration_assurance,expiration_visite_technique,expiration_permis,vidange,entretien,controle_pneus,controle_batterie,revision,personnalise',
             'title'              => 'required|string|max:150',
             'notes'              => 'nullable|string|max:500',
-            'remind_at'          => 'required|date|after:today',
-            'remind_before_days' => 'nullable|integer|min:1|max:365',
-            'is_recurring'       => 'boolean',
-            'recurrence'         => 'nullable|in:mensuel,trimestriel,annuel',
+            'remind_at'          => 'required|date|after_or_equal:today',
+            'remind_before_days' => 'sometimes|integer|min:1|max:365',
+            'vehicle_id'         => 'nullable|integer|exists:vehicles,id_vehicule',
+            'document_id'        => 'nullable|integer|exists:documents,id_doc',
+            'is_recurring'       => 'sometimes|boolean',
+            'recurrence'         => 'required_if:is_recurring,true|nullable|in:mensuel,trimestriel,annuel',
         ]);
 
-        // Vérifier que le véhicule appartient à l'utilisateur
-        if (!empty($data['vehicle_id'])) {
-            $request->user()->vehicles()->findOrFail($data['vehicle_id']);
+        // Vérifier que le véhicule appartient à l'user si fourni
+        if (!empty($validated['vehicle_id'])) {
+            $ok = DB::table('vehicles')
+                ->where('id_vehicule', $validated['vehicle_id'])
+                ->where('user_id', $userId)
+                ->whereNull('deleted_at')
+                ->exists();
+            if (!$ok) {
+                return response()->json(['success' => false, 'message' => 'Véhicule invalide.'], 422);
+            }
         }
 
-        $data['user_id'] = $request->user()->id;
-        $reminder = Reminder::create($data);
+        $id = DB::table('reminders')->insertGetId(array_merge($validated, [
+            'user_id'    => $userId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]));
+
+        $reminder = DB::table('reminders')->where('id_reminder', $id)->first();
 
         return response()->json(['success' => true, 'message' => 'Rappel créé.', 'data' => $reminder], 201);
     }
 
-    /**
-     * GET /reminders/{id}
-     */
+    // ─────────────────────────────────────────────
+    // SHOW
+    // GET /connecte/reminders/{id}
+    // ─────────────────────────────────────────────
     public function show(Request $request, int $id): JsonResponse
     {
-        $reminder = $request->user()->reminders()
-            ->with(['vehicle:id,brand,model', 'document:id,type,expiry_date'])
-            ->findOrFail($id);
+        $reminder = $this->findUserReminder($request->user()->id_user_carbu, $id);
+
+        if (!$reminder) {
+            return response()->json(['success' => false, 'message' => 'Rappel introuvable.'], 404);
+        }
 
         return response()->json(['success' => true, 'data' => $reminder]);
     }
 
-    /**
-     * PUT /reminders/{id}
-     */
+    // ─────────────────────────────────────────────
+    // UPDATE
+    // PUT /connecte/reminders/{id}
+    // ─────────────────────────────────────────────
     public function update(Request $request, int $id): JsonResponse
     {
-        $reminder = $request->user()->reminders()->findOrFail($id);
+        $userId = $request->user()->id_user_carbu;
 
-        $data = $request->validate([
+        if (!$this->findUserReminder($userId, $id)) {
+            return response()->json(['success' => false, 'message' => 'Rappel introuvable.'], 404);
+        }
+
+        $validated = $request->validate([
             'title'              => 'sometimes|string|max:150',
-            'notes'              => 'nullable|string|max:500',
+            'notes'              => 'sometimes|nullable|string|max:500',
             'remind_at'          => 'sometimes|date',
-            'remind_before_days' => 'nullable|integer|min:1|max:365',
-            'is_recurring'       => 'boolean',
-            'recurrence'         => 'nullable|in:mensuel,trimestriel,annuel',
+            'remind_before_days' => 'sometimes|integer|min:1|max:365',
+            'is_recurring'       => 'sometimes|boolean',
+            'recurrence'         => 'sometimes|nullable|in:mensuel,trimestriel,annuel',
         ]);
 
-        $reminder->update($data);
+        DB::table('reminders')
+            ->where('id_reminder', $id)
+            ->update(array_merge($validated, ['updated_at' => now()]));
 
-        return response()->json(['success' => true, 'message' => 'Rappel mis à jour.', 'data' => $reminder->fresh()]);
+        $updated = DB::table('reminders')->where('id_reminder', $id)->first();
+
+        return response()->json(['success' => true, 'message' => 'Rappel mis à jour.', 'data' => $updated]);
     }
 
-    /**
-     * DELETE /reminders/{id}
-     */
+    // ─────────────────────────────────────────────
+    // DESTROY
+    // DELETE /connecte/reminders/{id}
+    // ─────────────────────────────────────────────
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $reminder = $request->user()->reminders()->findOrFail($id);
-        $reminder->delete();
+        $userId = $request->user()->id_user_carbu;
+
+        if (!$this->findUserReminder($userId, $id)) {
+            return response()->json(['success' => false, 'message' => 'Rappel introuvable.'], 404);
+        }
+
+        DB::table('reminders')->where('id_reminder', $id)->delete();
 
         return response()->json(['success' => true, 'message' => 'Rappel supprimé.']);
     }
 
-    /**
-     * PATCH /reminders/{id}/dismiss
-     */
+    // ─────────────────────────────────────────────
+    // DISMISS — Ignorer un rappel
+    // PATCH /connecte/reminders/{id}/dismiss
+    // ─────────────────────────────────────────────
     public function dismiss(Request $request, int $id): JsonResponse
     {
-        $reminder = $request->user()->reminders()->findOrFail($id);
-        $reminder->update(['is_dismissed' => true]);
+        $userId = $request->user()->id_user_carbu;
+
+        if (!$this->findUserReminder($userId, $id)) {
+            return response()->json(['success' => false, 'message' => 'Rappel introuvable.'], 404);
+        }
+
+        DB::table('reminders')
+            ->where('id_reminder', $id)
+            ->update(['is_dismissed' => true, 'updated_at' => now()]);
 
         return response()->json(['success' => true, 'message' => 'Rappel ignoré.']);
+    }
+
+    private function findUserReminder(int $userId, int $id): ?object
+    {
+        return DB::table('reminders')
+            ->where('id_reminder', $id)
+            ->where('user_id', $userId)
+            ->first();
     }
 }

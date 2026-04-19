@@ -1,52 +1,38 @@
 <?php
 
+use App\Http\Controllers\AbonnementsController;
+use App\Http\Controllers\AvisController;
+use App\Http\Controllers\BannieresController;
+use App\Http\Controllers\ConseilsController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DemandesController;
+use App\Http\Controllers\GaragesController;
+use App\Http\Controllers\JournauxController;
+use App\Http\Controllers\NotificationsController;
+use App\Http\Controllers\PaiementsController;
+use App\Http\Controllers\ParametresController;
+use App\Http\Controllers\PromotionsController;
+use App\Http\Controllers\StationsController;
+use App\Http\Controllers\UsersController;
+use App\Http\Controllers\VersionsController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
     return view('pages.login');
 });
-Route::get('index', function () {
-    return view('index');
-});
-Route::get('log', function () {
-    return view('pages.activity-logs');
-});
-Route::get('app-version', function () {
-    return view('pages.app-versions');
-});
-Route::get('articles', function () {
-    return view('pages.articles');
-});
-Route::get('banners', function () {
-    return view('pages.banners');
-});
-Route::get('garages', function () {
-    return view('pages.garages');
-});
-Route::get('notifications', function () {
-    return view('pages.notifications');
-});
-Route::get('partner', function () {
-    return view('pages.partner-requests');
-});
-Route::get('payments', function () {
-    return view('pages.payments');
-});
-Route::get('promotions', function () {
-    return view('pages.promotions');
-});
-Route::get('reviews', function () {
-    return view('pages.reviews');
-});
-Route::get('settings', function () {
-    return view('pages.settings');
-});
-Route::get('stations', function () {
-    return view('pages.stations');
-});
-Route::get('subscriptions', function () {
-    return view('pages.subscriptions');
-});
-Route::get('users', function () {
-    return view('pages.users');
-});
+
+Route::resource('index', DashboardController::class);
+Route::resource('users', UsersController::class);
+Route::resource('activity-logs', JournauxController::class);
+Route::resource('app-versions', VersionsController::class);
+Route::resource('articles', ConseilsController::class);
+Route::resource('banners', BannieresController::class);
+Route::resource('stations', StationsController::class);
+Route::resource('garages', GaragesController::class);
+Route::resource('notifications', NotificationsController::class);
+Route::resource('partner-requests', DemandesController::class);
+Route::resource('payments', PaiementsController::class);
+Route::resource('promotions', PromotionsController::class);
+Route::resource('reviews', AvisController::class);
+Route::resource('settings', ParametresController::class);
+Route::resource('subscriptions', AbonnementsController::class);

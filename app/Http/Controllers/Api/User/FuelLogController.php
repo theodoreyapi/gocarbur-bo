@@ -11,179 +11,234 @@ use Illuminate\Support\Facades\DB;
 
 class FuelLogController extends Controller
 {
-    private function getVehicle(Request $request, int $vehicleId): Vehicle
-    {
-        return $request->user()->vehicles()->findOrFail($vehicleId);
-    }
-
-    /**
-     * GET /vehicles/{vehicleId}/fuel-logs
-     */
+    // ─────────────────────────────────────────────
+    // INDEX — Historique des pleins
+    // GET /connecte/vehicles/{vehicleId}/fuel-logs
+    // ─────────────────────────────────────────────
     public function index(Request $request, int $vehicleId): JsonResponse
     {
-        $vehicle = $this->getVehicle($request, $vehicleId);
-
-        $logs = $vehicle->fuelLogs()
-            ->with('station:id,name,brand,logo_url')
-            ->when($request->fuel_type, fn($q) => $q->where('fuel_type', $request->fuel_type))
-            ->when($request->from, fn($q) => $q->where('filled_at', '>=', $request->from))
-            ->when($request->to,   fn($q) => $q->where('filled_at', '<=', $request->to))
-            ->orderByDesc('filled_at')
-            ->paginate($request->input('per_page', 15));
-
-        return response()->json(['success' => true, 'data' => $logs]);
-    }
-
-    /**
-     * POST /vehicles/{vehicleId}/fuel-logs
-     */
-    public function store(Request $request, int $vehicleId): JsonResponse
-    {
-        $vehicle = $this->getVehicle($request, $vehicleId);
-
-        $data = $request->validate([
-            'fuel_type'       => 'required|in:essence,gasoil,sans_plomb,super',
-            'liters'          => 'required|numeric|min:0.5|max:200',
-            'price_per_liter' => 'required|numeric|min:1',
-            'station_id'      => 'nullable|exists:stations,id',
-            'mileage'         => 'nullable|integer|min:0',
-            'full_tank'       => 'boolean',
-            'notes'           => 'nullable|string|max:300',
-            'filled_at'       => 'nullable|date',
-        ]);
-
-        $data['total_cost'] = round($data['liters'] * $data['price_per_liter'], 2);
-        $data['vehicle_id'] = $vehicle->id;
-        $data['filled_at']  = $data['filled_at'] ?? now();
-
-        $log = FuelLog::create($data);
-
-        // Mettre à jour kilométrage véhicule
-        if (!empty($data['mileage']) && $data['mileage'] > $vehicle->mileage) {
-            $vehicle->update(['mileage' => $data['mileage']]);
+        if (!$this->vehicleBelongsToUser($request->user()->id_user_carbu, $vehicleId)) {
+            return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
         }
 
+        $limit = $request->input('limit', 20);
+        $page  = max(1, (int) $request->input('page', 1));
+
+        $query = DB::table('fuel_logs')
+            ->where('vehicle_id', $vehicleId)
+            ->orderByDesc('filled_at');
+
+        $total = $query->count();
+        $items = $query->offset(($page - 1) * $limit)->limit($limit)->get();
+
         return response()->json([
-            'success'    => true,
-            'message'    => 'Plein enregistré.',
-            'data'       => $log->load('station:id,name,brand'),
-            'total_cost' => $data['total_cost'],
-        ], 201);
+            'success' => true,
+            'data'    => $items,
+            'meta'    => ['total' => $total, 'page' => $page, 'limit' => $limit],
+        ]);
     }
 
-    /**
-     * GET /vehicles/{vehicleId}/fuel-logs/stats  (Premium uniquement)
-     */
+    // ─────────────────────────────────────────────
+    // STORE — Enregistrer un plein
+    // POST /connecte/vehicles/{vehicleId}/fuel-logs
+    // ─────────────────────────────────────────────
+    public function store(Request $request, int $vehicleId): JsonResponse
+    {
+        if (!$this->vehicleBelongsToUser($request->user()->id_user_carbu, $vehicleId)) {
+            return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
+        }
+
+        $validated = $request->validate([
+            'fuel_type'       => 'required|in:essence,gasoil,sans_plomb,super',
+            'liters'          => 'required|numeric|min:0.1',
+            'price_per_liter' => 'required|numeric|min:0',
+            'total_cost'      => 'required|numeric|min:0',
+            'mileage'         => 'nullable|integer|min:0',
+            'full_tank'       => 'sometimes|boolean',
+            'notes'           => 'nullable|string|max:300',
+            'station_id'      => 'nullable|integer|exists:stations,id_station',
+            'filled_at'       => 'required|date',
+        ]);
+
+        $id = DB::table('fuel_logs')->insertGetId(array_merge($validated, [
+            'vehicle_id' => $vehicleId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]));
+
+        // Mettre à jour le kilométrage du véhicule si fourni
+        if (!empty($validated['mileage'])) {
+            $vehicle = DB::table('vehicles')->where('id_vehicule', $vehicleId)->first(['mileage']);
+            if (!$vehicle->mileage || $validated['mileage'] > $vehicle->mileage) {
+                DB::table('vehicles')->where('id_vehicule', $vehicleId)
+                    ->update(['mileage' => $validated['mileage'], 'updated_at' => now()]);
+            }
+        }
+
+        $log = DB::table('fuel_logs')->where('id_fuel_log', $id)->first();
+
+        return response()->json(['success' => true, 'message' => 'Plein enregistré.', 'data' => $log], 201);
+    }
+
+    // ─────────────────────────────────────────────
+    // STATS — Statistiques mensuelles (Premium)
+    // GET /connecte/vehicles/{vehicleId}/fuel-logs/stats
+    // ─────────────────────────────────────────────
     public function stats(Request $request, int $vehicleId): JsonResponse
     {
-        $vehicle = $this->getVehicle($request, $vehicleId);
+        $user = $request->user();
 
-        $year  = $request->input('year', now()->year);
-        $month = $request->input('month'); // optionnel
+        // Vérification abonnement premium
+        if ($user->subscription_type !== 'premium') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cette fonctionnalité est réservée aux membres Premium.',
+                'upgrade' => true,
+            ], 403);
+        }
 
-        // Stats mensuelles sur 12 mois
-        $monthly = $vehicle->fuelLogs()
-            ->selectRaw('
-                YEAR(filled_at)  AS year,
-                MONTH(filled_at) AS month,
-                COUNT(*)         AS fills_count,
-                SUM(liters)      AS total_liters,
-                SUM(total_cost)  AS total_cost,
-                AVG(price_per_liter) AS avg_price
-            ')
-            ->whereYear('filled_at', $year)
-            ->when($month, fn($q) => $q->whereMonth('filled_at', $month))
-            ->groupByRaw('YEAR(filled_at), MONTH(filled_at)')
-            ->orderByRaw('YEAR(filled_at), MONTH(filled_at)')
+        if (!$this->vehicleBelongsToUser($user->id_user_carbu, $vehicleId)) {
+            return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
+        }
+
+        // Stats par mois (12 derniers mois)
+        $monthly = DB::table('fuel_logs')
+            ->where('vehicle_id', $vehicleId)
+            ->where('filled_at', '>=', now()->subMonths(12))
+            ->selectRaw("
+                DATE_FORMAT(filled_at, '%Y-%m') AS month,
+                COUNT(*)                         AS fill_count,
+                SUM(liters)                      AS total_liters,
+                SUM(total_cost)                  AS total_cost,
+                AVG(price_per_liter)             AS avg_price_per_liter
+            ")
+            ->groupByRaw("DATE_FORMAT(filled_at, '%Y-%m')")
+            ->orderByRaw("month DESC")
             ->get();
 
         // Totaux globaux
-        $totals = $vehicle->fuelLogs()
-            ->selectRaw('
-                COUNT(*)     AS total_fills,
-                SUM(liters)  AS total_liters,
-                SUM(total_cost) AS total_spent,
-                AVG(price_per_liter) AS avg_price_per_liter
-            ')
-            ->whereYear('filled_at', $year)
+        $totals = DB::table('fuel_logs')
+            ->where('vehicle_id', $vehicleId)
+            ->selectRaw("
+                COUNT(*)        AS total_fills,
+                SUM(liters)     AS total_liters,
+                SUM(total_cost) AS total_cost,
+                AVG(price_per_liter) AS avg_price
+            ")
             ->first();
 
-        // Consommation moyenne (L/100km) — si données kilométrage disponibles
-        $consumption = null;
-        $logsWithMileage = $vehicle->fuelLogs()
+        // Consommation moyenne (L/100km) si kilométrage disponible
+        $firstLog = DB::table('fuel_logs')
+            ->where('vehicle_id', $vehicleId)
             ->whereNotNull('mileage')
-            ->orderBy('mileage')
-            ->get(['mileage', 'liters']);
+            ->orderBy('filled_at')
+            ->first(['mileage', 'filled_at']);
 
-        if ($logsWithMileage->count() >= 2) {
-            $totalKm     = $logsWithMileage->last()->mileage - $logsWithMileage->first()->mileage;
-            $totalLiters = $logsWithMileage->skip(1)->sum('liters'); // Exclure le premier plein
-            if ($totalKm > 0) {
-                $consumption = round(($totalLiters / $totalKm) * 100, 2);
-            }
+        $lastLog = DB::table('fuel_logs')
+            ->where('vehicle_id', $vehicleId)
+            ->whereNotNull('mileage')
+            ->orderByDesc('filled_at')
+            ->first(['mileage', 'liters']);
+
+        $avgConsumption = null;
+        if ($firstLog && $lastLog && $lastLog->mileage > $firstLog->mileage) {
+            $kmDriven       = $lastLog->mileage - $firstLog->mileage;
+            $totalLiters    = DB::table('fuel_logs')->where('vehicle_id', $vehicleId)->sum('liters');
+            $avgConsumption = round(($totalLiters / $kmDriven) * 100, 2);
         }
 
         return response()->json([
             'success' => true,
             'data'    => [
-                'year'              => $year,
-                'monthly'           => $monthly,
-                'totals'            => $totals,
-                'avg_consumption'   => $consumption ? "{$consumption} L/100km" : null,
+                'monthly'         => $monthly,
+                'totals'          => $totals,
+                'avg_consumption' => $avgConsumption ? "{$avgConsumption} L/100km" : null,
             ],
         ]);
     }
 
-    /**
-     * GET /vehicles/{vehicleId}/fuel-logs/{id}
-     */
+    // ─────────────────────────────────────────────
+    // SHOW
+    // GET /connecte/vehicles/{vehicleId}/fuel-logs/{id}
+    // ─────────────────────────────────────────────
     public function show(Request $request, int $vehicleId, int $id): JsonResponse
     {
-        $vehicle = $this->getVehicle($request, $vehicleId);
-        $log     = $vehicle->fuelLogs()->with('station:id,name,brand,address')->findOrFail($id);
+        if (!$this->vehicleBelongsToUser($request->user()->id_user_carbu, $vehicleId)) {
+            return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
+        }
+
+        $log = DB::table('fuel_logs')
+            ->where('id_fuel_log', $id)
+            ->where('vehicle_id', $vehicleId)
+            ->first();
+
+        if (!$log) {
+            return response()->json(['success' => false, 'message' => 'Enregistrement introuvable.'], 404);
+        }
 
         return response()->json(['success' => true, 'data' => $log]);
     }
 
-    /**
-     * PUT /vehicles/{vehicleId}/fuel-logs/{id}
-     */
+    // ─────────────────────────────────────────────
+    // UPDATE
+    // PUT /connecte/vehicles/{vehicleId}/fuel-logs/{id}
+    // ─────────────────────────────────────────────
     public function update(Request $request, int $vehicleId, int $id): JsonResponse
     {
-        $vehicle = $this->getVehicle($request, $vehicleId);
-        $log     = $vehicle->fuelLogs()->findOrFail($id);
-
-        $data = $request->validate([
-            'fuel_type'       => 'sometimes|in:essence,gasoil,sans_plomb,super',
-            'liters'          => 'sometimes|numeric|min:0.5|max:200',
-            'price_per_liter' => 'sometimes|numeric|min:1',
-            'station_id'      => 'nullable|exists:stations,id',
-            'mileage'         => 'nullable|integer|min:0',
-            'full_tank'       => 'boolean',
-            'notes'           => 'nullable|string|max:300',
-            'filled_at'       => 'nullable|date',
-        ]);
-
-        if (isset($data['liters']) || isset($data['price_per_liter'])) {
-            $liters  = $data['liters'] ?? $log->liters;
-            $price   = $data['price_per_liter'] ?? $log->price_per_liter;
-            $data['total_cost'] = round($liters * $price, 2);
+        if (!$this->vehicleBelongsToUser($request->user()->id_user_carbu, $vehicleId)) {
+            return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
         }
 
-        $log->update($data);
+        $log = DB::table('fuel_logs')->where('id_fuel_log', $id)->where('vehicle_id', $vehicleId)->first();
+        if (!$log) {
+            return response()->json(['success' => false, 'message' => 'Enregistrement introuvable.'], 404);
+        }
 
-        return response()->json(['success' => true, 'message' => 'Plein mis à jour.', 'data' => $log->fresh()]);
+        $validated = $request->validate([
+            'fuel_type'       => 'sometimes|in:essence,gasoil,sans_plomb,super',
+            'liters'          => 'sometimes|numeric|min:0.1',
+            'price_per_liter' => 'sometimes|numeric|min:0',
+            'total_cost'      => 'sometimes|numeric|min:0',
+            'mileage'         => 'sometimes|nullable|integer|min:0',
+            'full_tank'       => 'sometimes|boolean',
+            'notes'           => 'sometimes|nullable|string|max:300',
+            'filled_at'       => 'sometimes|date',
+        ]);
+
+        DB::table('fuel_logs')
+            ->where('id_fuel_log', $id)
+            ->update(array_merge($validated, ['updated_at' => now()]));
+
+        $updated = DB::table('fuel_logs')->where('id_fuel_log', $id)->first();
+
+        return response()->json(['success' => true, 'message' => 'Plein mis à jour.', 'data' => $updated]);
     }
 
-    /**
-     * DELETE /vehicles/{vehicleId}/fuel-logs/{id}
-     */
+    // ─────────────────────────────────────────────
+    // DESTROY
+    // DELETE /connecte/vehicles/{vehicleId}/fuel-logs/{id}
+    // ─────────────────────────────────────────────
     public function destroy(Request $request, int $vehicleId, int $id): JsonResponse
     {
-        $vehicle = $this->getVehicle($request, $vehicleId);
-        $log     = $vehicle->fuelLogs()->findOrFail($id);
-        $log->delete();
+        if (!$this->vehicleBelongsToUser($request->user()->id_user_carbu, $vehicleId)) {
+            return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
+        }
+
+        $exists = DB::table('fuel_logs')
+            ->where('id_fuel_log', $id)->where('vehicle_id', $vehicleId)->exists();
+
+        if (!$exists) {
+            return response()->json(['success' => false, 'message' => 'Enregistrement introuvable.'], 404);
+        }
+
+        DB::table('fuel_logs')->where('id_fuel_log', $id)->delete();
 
         return response()->json(['success' => true, 'message' => 'Enregistrement supprimé.']);
+    }
+
+    private function vehicleBelongsToUser(int $userId, int $vehicleId): bool
+    {
+        return DB::table('vehicles')
+            ->where('id_vehicule', $vehicleId)->where('user_id', $userId)->whereNull('deleted_at')->exists();
     }
 }

@@ -8,74 +8,100 @@ use App\Models\Garage;
 use App\Models\Station;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class FavoriteController extends Controller
 {
-    private function resolveModel(string $type): string
-    {
-        return match($type) {
-            'station' => Station::class,
-            'garage'  => Garage::class,
-            default   => abort(422, 'Type invalide. Utilisez station ou garage.'),
-        };
-    }
+    private const TYPE_MAP = [
+        'station' => 'App\Models\Station',
+        'garage'  => 'App\Models\Garage',
+    ];
 
-    /**
-     * GET /favorites
-     */
+    // GET /connecte/favorites
     public function index(Request $request): JsonResponse
     {
-        $favorites = $request->user()->favorites()
-            ->with('favoriteable')
-            ->orderByDesc('created_at')
-            ->get()
-            ->groupBy('favoriteable_type')
-            ->map(fn($group) => $group->pluck('favoriteable'));
+        $userId = $request->user()->id_user_carbu;
 
-        return response()->json(['success' => true, 'data' => $favorites]);
+        $favorites = DB::table('favorites')
+            ->where('user_id', $userId)
+            ->orderByDesc('created_at')
+            ->get();
+
+        // Enrichir chaque favori avec les infos du lieu
+        $enriched = $favorites->map(function ($fav) {
+            $fav = (array) $fav;
+
+            if ($fav['favoriteable_type'] === 'App\Models\Station') {
+                $fav['place'] = DB::table('stations')
+                    ->where('id_station', $fav['favoriteable_id'])
+                    ->first(['id_station', 'name', 'address', 'city', 'latitude', 'longitude', 'logo_url', 'is_verified']);
+            } elseif ($fav['favoriteable_type'] === 'App\Models\Garage') {
+                $fav['place'] = DB::table('garages')
+                    ->where('id_garage', $fav['favoriteable_id'])
+                    ->first(['id_garage', 'name', 'address', 'city', 'latitude', 'longitude', 'logo_url', 'rating']);
+            } else {
+                $fav['place'] = null;
+            }
+
+            return $fav;
+        });
+
+        return response()->json(['success' => true, 'data' => $enriched]);
     }
 
-    /**
-     * POST /favorites
-     * Body: { type: "station", id: 5 }
-     */
+    // POST /connecte/favorites  {type: "station", id: 5}
     public function store(Request $request): JsonResponse
     {
-        $data = $request->validate([
+        $validated = $request->validate([
             'type' => 'required|in:station,garage',
-            'id'   => 'required|integer',
+            'id'   => 'required|integer|min:1',
         ]);
 
-        $modelClass = $this->resolveModel($data['type']);
-        $model      = $modelClass::findOrFail($data['id']);
+        $userId        = $request->user()->id_user_carbu;
+        $favoriteType  = self::TYPE_MAP[$validated['type']];
+        $favoriteId    = $validated['id'];
 
-        // Vérifier doublon
-        $exists = $request->user()->favorites()
-            ->where('favoriteable_type', $modelClass)
-            ->where('favoriteable_id', $data['id'])
-            ->exists();
+        // Vérifier que la ressource existe
+        $table = $validated['type'] . 's';
+        $pk    = 'id_' . ($validated['type'] === 'station' ? 'station' : 'garage');
+        $exists = DB::table($table)->where($pk, $favoriteId)->where('is_active', true)->exists();
 
-        if ($exists) {
-            return response()->json(['success' => false, 'message' => 'Déjà dans vos favoris.'], 409);
+        if (!$exists) {
+            return response()->json(['success' => false, 'message' => ucfirst($validated['type']) . ' introuvable.'], 404);
         }
 
-        $favorite = $request->user()->favorites()->create([
-            'favoriteable_type' => $modelClass,
-            'favoriteable_id'   => $data['id'],
+        // Vérifier qu'il n'est pas déjà en favori
+        $alreadyFav = DB::table('favorites')
+            ->where('user_id', $userId)
+            ->where('favoriteable_type', $favoriteType)
+            ->where('favoriteable_id', $favoriteId)
+            ->exists();
+
+        if ($alreadyFav) {
+            return response()->json(['success' => false, 'message' => 'Déjà en favoris.'], 409);
+        }
+
+        $id = DB::table('favorites')->insertGetId([
+            'user_id'           => $userId,
+            'favoriteable_type' => $favoriteType,
+            'favoriteable_id'   => $favoriteId,
+            'created_at'        => now(),
+            'updated_at'        => now(),
         ]);
 
-        return response()->json(['success' => true, 'message' => 'Ajouté aux favoris.', 'data' => $favorite], 201);
+        return response()->json(['success' => true, 'message' => 'Ajouté aux favoris.', 'data' => ['id' => $id]], 201);
     }
 
-    /**
-     * DELETE /favorites/{type}/{id}
-     */
+    // DELETE /connecte/favorites/{type}/{id}
     public function destroy(Request $request, string $type, int $id): JsonResponse
     {
-        $modelClass = $this->resolveModel($type);
+        if (!array_key_exists($type, self::TYPE_MAP)) {
+            return response()->json(['success' => false, 'message' => 'Type invalide.'], 422);
+        }
 
-        $deleted = $request->user()->favorites()
-            ->where('favoriteable_type', $modelClass)
+        $deleted = DB::table('favorites')
+            ->where('user_id', $request->user()->id_user_carbu)
+            ->where('favoriteable_type', self::TYPE_MAP[$type])
             ->where('favoriteable_id', $id)
             ->delete();
 
@@ -86,18 +112,19 @@ class FavoriteController extends Controller
         return response()->json(['success' => true, 'message' => 'Retiré des favoris.']);
     }
 
-    /**
-     * GET /favorites/check/{type}/{id}
-     */
+    // GET /connecte/favorites/check/{type}/{id}
     public function check(Request $request, string $type, int $id): JsonResponse
     {
-        $modelClass = $this->resolveModel($type);
+        if (!array_key_exists($type, self::TYPE_MAP)) {
+            return response()->json(['success' => false, 'message' => 'Type invalide.'], 422);
+        }
 
-        $is_favorite = $request->user()->favorites()
-            ->where('favoriteable_type', $modelClass)
+        $isFav = DB::table('favorites')
+            ->where('user_id', $request->user()->id_user_carbu)
+            ->where('favoriteable_type', self::TYPE_MAP[$type])
             ->where('favoriteable_id', $id)
             ->exists();
 
-        return response()->json(['success' => true, 'is_favorite' => $is_favorite]);
+        return response()->json(['success' => true, 'data' => ['is_favorite' => $isFav]]);
     }
 }

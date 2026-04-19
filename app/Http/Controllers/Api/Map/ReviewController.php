@@ -12,109 +12,155 @@ use Illuminate\Support\Facades\DB;
 
 class ReviewController extends Controller
 {
-    private function resolveModel(string $type)
-    {
-        return match($type) {
-            'station' => [Station::class, new Station()],
-            'garage'  => [Garage::class,  new Garage()],
-            default   => abort(422, 'Type invalide.'),
-        };
-    }
+    private const TYPE_MAP = [
+        'station' => 'App\Models\Station',
+        'garage'  => 'App\Models\Garage',
+    ];
 
-    /**
-     * POST /reviews
-     */
+    // POST /connecte/reviews  {type: "station", id: 5, rating: 4, comment: "..."}
     public function store(Request $request): JsonResponse
     {
-        $data = $request->validate([
+        $validated = $request->validate([
             'type'    => 'required|in:station,garage',
-            'id'      => 'required|integer',
+            'id'      => 'required|integer|min:1',
             'rating'  => 'required|integer|min:1|max:5',
             'comment' => 'nullable|string|max:1000',
         ]);
 
-        [$modelClass] = $this->resolveModel($data['type']);
-        $entity = $modelClass::findOrFail($data['id']);
+        $userId         = $request->user()->id_user_carbu;
+        $reviewableType = self::TYPE_MAP[$validated['type']];
+        $reviewableId   = $validated['id'];
 
-        // Un utilisateur = un avis par établissement
-        $exists = Review::where('user_id', $request->user()->id)
-            ->where('reviewable_type', $modelClass)
-            ->where('reviewable_id', $data['id'])
+        // Vérifier que la ressource existe
+        $table = $validated['type'] . 's';
+        $pk    = 'id_' . ($validated['type'] === 'station' ? 'station' : 'garage');
+        if (!DB::table($table)->where($pk, $reviewableId)->where('is_active', true)->exists()) {
+            return response()->json(['success' => false, 'message' => ucfirst($validated['type']) . ' introuvable.'], 404);
+        }
+
+        // Un avis unique par utilisateur + ressource (géré par la contrainte unique DB)
+        $exists = DB::table('reviews')
+            ->where('user_id', $userId)
+            ->where('reviewable_type', $reviewableType)
+            ->where('reviewable_id', $reviewableId)
+            ->whereNull('deleted_at')
             ->exists();
 
         if ($exists) {
-            return response()->json(['success' => false, 'message' => 'Vous avez déjà laissé un avis.'], 409);
+            return response()->json(['success' => false, 'message' => 'Vous avez déjà déposé un avis.'], 409);
         }
 
-        $review = Review::create([
-            'user_id'         => $request->user()->id,
-            'reviewable_type' => $modelClass,
-            'reviewable_id'   => $data['id'],
-            'rating'          => $data['rating'],
-            'comment'         => $data['comment'] ?? null,
-            'is_approved'     => false, // Modération admin
+        $id = DB::table('reviews')->insertGetId([
+            'user_id'         => $userId,
+            'reviewable_type' => $reviewableType,
+            'reviewable_id'   => $reviewableId,
+            'rating'          => $validated['rating'],
+            'comment'         => $validated['comment'] ?? null,
+            'is_approved'     => false,
+            'created_at'      => now(),
+            'updated_at'      => now(),
         ]);
 
-        // Recalculer la note moyenne du garage
-        if ($data['type'] === 'garage') {
-            $avg = Review::where('reviewable_type', $modelClass)
-                ->where('reviewable_id', $data['id'])
-                ->where('is_approved', true)
-                ->avg('rating');
-            $count = Review::where('reviewable_type', $modelClass)
-                ->where('reviewable_id', $data['id'])
-                ->where('is_approved', true)
-                ->count();
-            $entity->update(['rating' => round($avg, 2), 'rating_count' => $count]);
+        // Recalculer la note du garage si c'en est un
+        if ($validated['type'] === 'garage') {
+            $this->recalcGarageRating($reviewableId);
         }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Avis soumis. Il sera visible après modération.',
-            'data'    => $review,
-        ], 201);
+        $review = DB::table('reviews')->where('id_review', $id)->first();
+
+        return response()->json(['success' => true, 'message' => 'Avis déposé. En attente de modération.', 'data' => $review], 201);
     }
 
-    /**
-     * PUT /reviews/{id}
-     */
+    // PUT /connecte/reviews/{id}
     public function update(Request $request, int $id): JsonResponse
     {
-        $review = Review::where('user_id', $request->user()->id)->findOrFail($id);
+        $userId = $request->user()->id_user_carbu;
 
-        $data = $request->validate([
+        $review = DB::table('reviews')
+            ->where('id_review', $id)->where('user_id', $userId)->whereNull('deleted_at')->first();
+
+        if (!$review) {
+            return response()->json(['success' => false, 'message' => 'Avis introuvable.'], 404);
+        }
+
+        $validated = $request->validate([
             'rating'  => 'sometimes|integer|min:1|max:5',
-            'comment' => 'nullable|string|max:1000',
+            'comment' => 'sometimes|nullable|string|max:1000',
         ]);
 
-        // Repasser en modération
-        $data['is_approved'] = false;
-        $review->update($data);
+        DB::table('reviews')
+            ->where('id_review', $id)
+            ->update(array_merge($validated, [
+                'is_approved' => false, // repasse en modération
+                'updated_at'  => now(),
+            ]));
 
-        return response()->json(['success' => true, 'message' => 'Avis mis à jour.', 'data' => $review->fresh()]);
+        if ($review->reviewable_type === 'App\Models\Garage') {
+            $this->recalcGarageRating($review->reviewable_id);
+        }
+
+        $updated = DB::table('reviews')->where('id_review', $id)->first();
+
+        return response()->json(['success' => true, 'message' => 'Avis mis à jour.', 'data' => $updated]);
     }
 
-    /**
-     * DELETE /reviews/{id}
-     */
+    // DELETE /connecte/reviews/{id}
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $review = Review::where('user_id', $request->user()->id)->findOrFail($id);
-        $review->delete();
+        $userId = $request->user()->id_user_carbu;
+
+        $review = DB::table('reviews')
+            ->where('id_review', $id)->where('user_id', $userId)->whereNull('deleted_at')->first();
+
+        if (!$review) {
+            return response()->json(['success' => false, 'message' => 'Avis introuvable.'], 404);
+        }
+
+        DB::table('reviews')->where('id_review', $id)->update(['deleted_at' => now()]);
+
+        if ($review->reviewable_type === 'App\Models\Garage') {
+            $this->recalcGarageRating($review->reviewable_id);
+        }
 
         return response()->json(['success' => true, 'message' => 'Avis supprimé.']);
     }
 
-    /**
-     * GET /reviews/my
-     */
+    // GET /connecte/reviews/my
     public function myReviews(Request $request): JsonResponse
     {
-        $reviews = Review::where('user_id', $request->user()->id)
-            ->with('reviewable:id,name')
-            ->orderByDesc('created_at')
-            ->paginate(15);
+        $userId = $request->user()->id_user_carbu;
+        $limit  = $request->input('limit', 20);
+        $page   = max(1, (int) $request->input('page', 1));
 
-        return response()->json(['success' => true, 'data' => $reviews]);
+        $query = DB::table('reviews')
+            ->where('user_id', $userId)
+            ->whereNull('deleted_at')
+            ->orderByDesc('created_at');
+
+        $total = $query->count();
+        $items = $query->offset(($page - 1) * $limit)->limit($limit)->get();
+
+        return response()->json([
+            'success' => true,
+            'data'    => $items,
+            'meta'    => ['total' => $total, 'page' => $page, 'limit' => $limit],
+        ]);
+    }
+
+    private function recalcGarageRating(int $garageId): void
+    {
+        $stats = DB::table('reviews')
+            ->where('reviewable_type', 'App\Models\Garage')
+            ->where('reviewable_id', $garageId)
+            ->where('is_approved', true)
+            ->whereNull('deleted_at')
+            ->selectRaw('AVG(rating) as avg, COUNT(*) as total')
+            ->first();
+
+        DB::table('garages')->where('id_garage', $garageId)->update([
+            'rating'       => round($stats->avg ?? 0, 2),
+            'rating_count' => $stats->total ?? 0,
+            'updated_at'   => now(),
+        ]);
     }
 }

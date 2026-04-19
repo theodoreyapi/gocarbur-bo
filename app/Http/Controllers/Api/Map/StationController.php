@@ -4,241 +4,369 @@ namespace App\Http\Controllers\Api\Map;
 
 use App\Http\Controllers\Controller;
 use App\Models\Station;
+use App\Models\StationService;
 use App\Models\StationView;
-use Illuminate\Http\JsonResponse;
+use App\Models\Promotion;
+use App\Models\PartnerRequest;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 
 class StationController extends Controller
 {
-    /**
-     * GET /stations
-     * Filtres: lat, lng, radius, fuel_type, city, verified, sort, subscription_type
-     */
+    // ─────────────────────────────────────────────
+    // INDEX
+    // GET /stations?lat=&lng=&radius=5&city=&verified=1&sort=distance&limit=20
+    // ─────────────────────────────────────────────
     public function index(Request $request): JsonResponse
     {
         $request->validate([
-            'lat'       => 'nullable|numeric|between:-90,90',
-            'lng'       => 'nullable|numeric|between:-180,180',
-            'radius'    => 'nullable|integer|min:1|max:50',
-            'fuel_type' => 'nullable|in:essence,gasoil,sans_plomb,super,gpl',
-            'city'      => 'nullable|string|max:100',
-            'verified'  => 'nullable|boolean',
-            'sort'      => 'nullable|in:distance,price_asc,price_desc,name',
+            'lat'      => 'nullable|numeric|between:-90,90',
+            'lng'      => 'nullable|numeric|between:-180,180',
+            'radius'   => 'nullable|numeric|min:0.1|max:100',
+            'city'     => 'nullable|string|max:100',
+            'verified' => 'nullable|boolean',
+            'sort'     => 'nullable|in:distance,name,views',
+            'limit'    => 'nullable|integer|min:1|max:100',
+            'page'     => 'nullable|integer|min:1',
         ]);
 
-        $query = Station::active()
-            ->with(['fuelPrices', 'services:id,station_id,service'])
-            ->withCount('reviews');
+        $lat    = $request->input('lat');
+        $lng    = $request->input('lng');
+        $radius = $request->input('radius', 10);
+        $limit  = $request->input('limit', 20);
+        $page   = max(1, (int) $request->input('page', 1));
 
-        // Filtre géographique
-        if ($request->lat && $request->lng) {
-            $query->nearby($request->lat, $request->lng, $request->input('radius', 10));
+        $query = DB::table('stations')
+            ->where('is_active', true)
+            ->whereNull('deleted_at');
+
+        if ($request->filled('city')) {
+            $query->where('city', 'like', '%' . $request->city . '%');
         }
 
-        // Filtres
-        if ($request->city)     $query->where('city', 'like', "%{$request->city}%");
-        if ($request->verified) $query->verified();
-
-        // Filtre par disponibilité du carburant
-        if ($request->fuel_type) {
-            $query->whereHas('fuelPrices', fn($q) =>
-                $q->where('fuel_type', $request->fuel_type)->where('is_available', true)
-            );
+        if ($request->boolean('verified')) {
+            $query->where('is_verified', true);
         }
 
-        // Tri
-        $sort = $request->input('sort', 'distance');
-        if ($sort === 'price_asc' && $request->fuel_type) {
-            $query->join('fuel_prices', 'stations.id', '=', 'fuel_prices.station_id')
-                  ->where('fuel_prices.fuel_type', $request->fuel_type)
-                  ->orderBy('fuel_prices.price');
-        } elseif ($sort === 'name') {
-            $query->orderBy('name');
+        if ($lat && $lng) {
+            $h = $this->haversine($lat, $lng);
+            $query->selectRaw("*, ($h) AS distance")
+                  ->havingRaw('distance <= ?', [$radius])
+                  ->orderBy('distance');
+        } else {
+            $query->select('*');
+            match ($request->input('sort', 'name')) {
+                'views' => $query->orderByDesc('views_count'),
+                default => $query->orderBy('name'),
+            };
         }
 
-        // Priorité aux abonnés pro/premium sur la carte
-        $query->orderByRaw("FIELD(subscription_type, 'premium', 'pro', 'free')");
+        $total = (clone $query)->count();
+        $items = $query->offset(($page - 1) * $limit)->limit($limit)->get();
 
-        $stations = $query->paginate($request->input('per_page', 20));
-
-        return response()->json(['success' => true, 'data' => $stations]);
+        return response()->json([
+            'success' => true,
+            'data'    => $items,
+            'meta'    => ['total' => $total, 'page' => $page, 'limit' => $limit],
+        ]);
     }
 
-    /**
-     * GET /stations/nearby
-     */
+    // ─────────────────────────────────────────────
+    // NEARBY
+    // GET /stations/nearby?lat=&lng=&radius=5
+    // ─────────────────────────────────────────────
     public function nearby(Request $request): JsonResponse
     {
         $request->validate([
-            'lat'    => 'required|numeric',
-            'lng'    => 'required|numeric',
-            'radius' => 'nullable|integer|min:1|max:50',
+            'lat'    => 'required|numeric|between:-90,90',
+            'lng'    => 'required|numeric|between:-180,180',
+            'radius' => 'nullable|numeric|min:0.1|max:50',
+            'limit'  => 'nullable|integer|min:1|max:50',
         ]);
 
-        $stations = Station::active()
-            ->nearby($request->lat, $request->lng, $request->input('radius', 5))
-            ->with(['fuelPrices', 'services:id,station_id,service'])
-            ->limit(30)
+        $lat    = $request->input('lat');
+        $lng    = $request->input('lng');
+        $radius = $request->input('radius', 5);
+        $limit  = $request->input('limit', 10);
+        $h      = $this->haversine($lat, $lng);
+
+        $stations = DB::table('stations')
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->selectRaw("*, ($h) AS distance")
+            ->havingRaw('distance <= ?', [$radius])
+            ->orderBy('distance')
+            ->limit($limit)
             ->get();
 
-        return response()->json(['success' => true, 'data' => $stations]);
+        return response()->json([
+            'success' => true,
+            'data'    => $stations,
+            'meta'    => ['lat' => $lat, 'lng' => $lng, 'radius' => $radius, 'unit' => 'km'],
+        ]);
     }
 
-    /**
-     * GET /stations/cheapest
-     */
+    // ─────────────────────────────────────────────
+    // CHEAPEST
+    // GET /stations/cheapest?fuel_type=essence&lat=&lng=&radius=10
+    // ─────────────────────────────────────────────
     public function cheapest(Request $request): JsonResponse
     {
         $request->validate([
-            'fuel_type' => 'required|in:essence,gasoil,sans_plomb,super,gpl',
-            'lat'       => 'nullable|numeric',
-            'lng'       => 'nullable|numeric',
-            'radius'    => 'nullable|integer|min:1|max:50',
+            'fuel_type' => 'nullable|string|max:50',
+            'lat'       => 'nullable|numeric|between:-90,90',
+            'lng'       => 'nullable|numeric|between:-180,180',
+            'radius'    => 'nullable|numeric|min:0.1|max:100',
+            'limit'     => 'nullable|integer|min:1|max:50',
         ]);
 
-        $query = Station::active()
-            ->join('fuel_prices', 'stations.id', '=', 'fuel_prices.station_id')
-            ->where('fuel_prices.fuel_type', $request->fuel_type)
-            ->where('fuel_prices.is_available', true)
-            ->select('stations.*', 'fuel_prices.price', 'fuel_prices.updated_at_price');
+        $lat    = $request->input('lat');
+        $lng    = $request->input('lng');
+        $radius = $request->input('radius', 10);
+        $limit  = $request->input('limit', 10);
 
-        if ($request->lat && $request->lng) {
-            $lat = $request->lat;
-            $lng = $request->lng;
-            $query->selectRaw("
-                stations.*,
-                fuel_prices.price,
-                (6371 * ACOS(COS(RADIANS(?)) * COS(RADIANS(latitude)) *
-                COS(RADIANS(longitude) - RADIANS(?)) +
-                SIN(RADIANS(?)) * SIN(RADIANS(latitude)))) AS distance
-            ", [$lat, $lng, $lat])
-            ->having('distance', '<=', $request->input('radius', 10));
+        $query = DB::table('stations')
+            ->join('fuel_prices', 'fuel_prices.station_id', '=', 'stations.id_station')
+            ->where('stations.is_active', true)
+            ->whereNull('stations.deleted_at')
+            ->select(
+                'stations.*',
+                'fuel_prices.fuel_type',
+                'fuel_prices.price',
+                'fuel_prices.updated_at as price_updated_at'
+            )
+            ->orderBy('fuel_prices.price');
+
+        if ($request->filled('fuel_type')) {
+            $query->where('fuel_prices.fuel_type', $request->fuel_type);
         }
 
-        $stations = $query->orderBy('fuel_prices.price')->limit(20)->get();
+        if ($lat && $lng) {
+            $h = $this->haversine($lat, $lng, 'stations');
+            $query->selectRaw("stations.*, fuel_prices.fuel_type, fuel_prices.price, ($h) AS distance")
+                  ->havingRaw('distance <= ?', [$radius]);
+        }
 
         return response()->json([
-            'success'   => true,
-            'fuel_type' => $request->fuel_type,
-            'data'      => $stations,
+            'success' => true,
+            'data'    => $query->limit($limit)->get(),
         ]);
     }
 
-    /**
-     * GET /stations/verified
-     */
+    // ─────────────────────────────────────────────
+    // VERIFIED
+    // GET /stations/verified
+    // ─────────────────────────────────────────────
     public function verified(Request $request): JsonResponse
     {
-        $stations = Station::active()->verified()
-            ->with('fuelPrices')
-            ->when($request->city, fn($q) => $q->where('city', $request->city))
-            ->orderByRaw("FIELD(subscription_type, 'premium', 'pro', 'free')")
-            ->paginate(20);
+        $limit = $request->input('limit', 20);
+        $page  = max(1, (int) $request->input('page', 1));
 
-        return response()->json(['success' => true, 'data' => $stations]);
+        $query = DB::table('stations')
+            ->where('is_active', true)
+            ->where('is_verified', true)
+            ->whereNull('deleted_at')
+            ->orderBy('name');
+
+        $total = $query->count();
+        $items = $query->offset(($page - 1) * $limit)->limit($limit)->get();
+
+        return response()->json([
+            'success' => true,
+            'data'    => $items,
+            'meta'    => ['total' => $total, 'page' => $page, 'limit' => $limit],
+        ]);
     }
 
-    /**
-     * POST /stations/register
-     * Inscription partenaire depuis le site web
-     */
+    // ─────────────────────────────────────────────
+    // REGISTER — Inscription partenaire station
+    // POST /stations/register
+    // ─────────────────────────────────────────────
     public function register(Request $request): JsonResponse
     {
-        $data = $request->validate([
+        $validated = $request->validate([
             'business_name'  => 'required|string|max:150',
             'contact_name'   => 'required|string|max:100',
             'contact_phone'  => 'required|string|max:20',
             'contact_email'  => 'nullable|email',
             'address'        => 'required|string|max:255',
             'city'           => 'required|string|max:100',
-            'latitude'       => 'nullable|numeric',
-            'longitude'      => 'nullable|numeric',
+            'latitude'       => 'nullable|numeric|between:-90,90',
+            'longitude'      => 'nullable|numeric|between:-180,180',
             'message'        => 'nullable|string|max:1000',
         ]);
 
-        $data['type'] = 'station';
-        \App\Models\PartnerRequest::create($data);
+        $id = DB::table('partner_requests')->insertGetId(array_merge($validated, [
+            'type'       => 'station',
+            'status'     => 'pending',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]));
 
         return response()->json([
             'success' => true,
-            'message' => 'Votre demande a été reçue. Notre équipe vous contactera sous 48h.',
+            'message' => 'Demande partenaire envoyée. Nous vous contacterons sous 48h.',
+            'data'    => ['id' => $id],
         ], 201);
     }
 
-    /**
-     * GET /stations/{id}
-     */
+    // ─────────────────────────────────────────────
+    // SHOW — Détail d'une station
+    // GET /stations/{id}
+    // ─────────────────────────────────────────────
     public function show(Request $request, int $id): JsonResponse
     {
-        $station = Station::active()
-            ->with([
-                'fuelPrices',
-                'services:id,station_id,service',
-                'promotions' => fn($q) => $q->active(),
-                'reviews'    => fn($q) => $q->with('user:id,name,avatar_url')->latest()->limit(5),
-            ])
-            ->withCount('reviews')
-            ->findOrFail($id);
+        $station = DB::table('stations')
+            ->where('id_station', $id)
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->first();
 
-        // Enregistrer la vue
-        StationView::create([
-            'station_id' => $station->id,
-            'user_id'    => $request->user()?->id,
+        if (!$station) {
+            return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
+        }
+
+        DB::table('stations')->where('id_station', $id)->increment('views_count');
+
+        DB::table('station_views')->insert([
+            'station_id' => $id,
+            'user_id'    => $request->user()?->id_user_carbu,
             'ip_address' => $request->ip(),
             'action'     => 'view_profile',
             'viewed_at'  => now(),
         ]);
 
-        $station->increment('views_count');
+        $services    = DB::table('station_services')->where('station_id', $id)->get();
+        $fuelPrices  = DB::table('fuel_prices')->where('station_id', $id)->orderBy('fuel_type')->get();
 
-        return response()->json(['success' => true, 'data' => $station]);
+        return response()->json([
+            'success' => true,
+            'data'    => array_merge((array) $station, [
+                'services'    => $services,
+                'fuel_prices' => $fuelPrices,
+            ]),
+        ]);
     }
 
-    /**
-     * GET /stations/{id}/prices
-     */
+    // ─────────────────────────────────────────────
+    // PRICES
+    // GET /stations/{id}/prices
+    // ─────────────────────────────────────────────
     public function prices(int $id): JsonResponse
     {
-        $station = Station::active()->findOrFail($id);
-        $prices  = $station->fuelPrices()->orderBy('fuel_type')->get();
+        $station = DB::table('stations')
+            ->where('id_station', $id)
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->first();
 
-        return response()->json(['success' => true, 'data' => $prices]);
+        if (!$station) {
+            return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
+        }
+
+        $prices = DB::table('fuel_prices')->where('station_id', $id)->orderBy('fuel_type')->get();
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'station_id'   => $id,
+                'station_name' => $station->name,
+                'prices'       => $prices,
+            ],
+        ]);
     }
 
-    /**
-     * GET /stations/{id}/promotions
-     */
+    // ─────────────────────────────────────────────
+    // PROMOTIONS
+    // GET /stations/{id}/promotions
+    // ─────────────────────────────────────────────
     public function promotions(int $id): JsonResponse
     {
-        $station    = Station::active()->findOrFail($id);
-        $promotions = $station->promotions()->active()->get();
+        if (!$this->stationExists($id)) {
+            return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
+        }
+
+        $today = now()->toDateString();
+
+        $promotions = DB::table('promotions')
+            ->where('promotable_type', 'App\Models\Station')
+            ->where('promotable_id', $id)
+            ->where('is_active', true)
+            ->where('starts_at', '<=', $today)
+            ->where('ends_at', '>=', $today)
+            ->whereNull('deleted_at')
+            ->orderBy('starts_at')
+            ->get();
 
         return response()->json(['success' => true, 'data' => $promotions]);
     }
 
-    /**
-     * GET /stations/{id}/reviews
-     */
+    // ─────────────────────────────────────────────
+    // REVIEWS
+    // GET /stations/{id}/reviews
+    // ─────────────────────────────────────────────
     public function reviews(Request $request, int $id): JsonResponse
     {
-        $station = Station::active()->findOrFail($id);
-        $reviews = $station->reviews()
-            ->with('user:id,name,avatar_url')
-            ->orderByDesc('created_at')
-            ->paginate(10);
+        if (!$this->stationExists($id)) {
+            return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
+        }
 
-        return response()->json(['success' => true, 'data' => $reviews]);
+        $limit = $request->input('limit', 10);
+        $page  = max(1, (int) $request->input('page', 1));
+
+        $query = DB::table('reviews')
+            ->where('reviewable_type', 'station')
+            ->where('reviewable_id', $id)
+            ->where('is_approved', true)
+            ->orderByDesc('created_at');
+
+        $total = $query->count();
+        $items = $query->offset(($page - 1) * $limit)->limit($limit)->get();
+
+        return response()->json([
+            'success' => true,
+            'data'    => $items,
+            'meta'    => ['total' => $total, 'page' => $page, 'limit' => $limit],
+        ]);
     }
 
-    /**
-     * GET /stations/{id}/services
-     */
+    // ─────────────────────────────────────────────
+    // SERVICES
+    // GET /stations/{id}/services
+    // ─────────────────────────────────────────────
     public function services(int $id): JsonResponse
     {
-        $station  = Station::active()->findOrFail($id);
-        $services = $station->services()->pluck('service');
+        if (!$this->stationExists($id)) {
+            return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
+        }
+
+        $services = DB::table('station_services')->where('station_id', $id)->get();
 
         return response()->json(['success' => true, 'data' => $services]);
+    }
+
+    // ─────────────────────────────────────────────
+    // HELPERS
+    // ─────────────────────────────────────────────
+    private function stationExists(int $id): bool
+    {
+        return DB::table('stations')
+            ->where('id_station', $id)
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->exists();
+    }
+
+    private function haversine(float $lat, float $lng, string $prefix = ''): string
+    {
+        $latCol = $prefix ? "{$prefix}.latitude"  : 'latitude';
+        $lngCol = $prefix ? "{$prefix}.longitude" : 'longitude';
+
+        return "(6371 * ACOS(LEAST(1,
+            COS(RADIANS($lat)) * COS(RADIANS($latCol)) *
+            COS(RADIANS($lngCol) - RADIANS($lng)) +
+            SIN(RADIANS($lat)) * SIN(RADIANS($latCol))
+        )))";
     }
 }

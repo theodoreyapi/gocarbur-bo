@@ -6,76 +6,97 @@ use App\Http\Controllers\Controller;
 use App\Models\AppNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class NotificationController extends Controller
 {
-    /**
-     * GET /notifications
-     */
+    // GET /connecte/notifications
     public function index(Request $request): JsonResponse
     {
-        $notifications = $request->user()->notifications()
-            ->when($request->type, fn($q) => $q->where('type', $request->type))
-            ->when($request->unread_only, fn($q) => $q->where('is_read', false))
-            ->orderByDesc('created_at')
-            ->paginate($request->input('per_page', 20));
+        $userId = $request->user()->id_user_carbu;
+        $limit  = $request->input('limit', 20);
+        $page   = max(1, (int) $request->input('page', 1));
 
-        return response()->json(['success' => true, 'data' => $notifications]);
+        $query = DB::table('notifications')
+            ->where('user_id', $userId)
+            ->orderByDesc('created_at');
+
+        $total = $query->count();
+        $items = $query->offset(($page - 1) * $limit)->limit($limit)->get()
+            ->map(fn ($n) => array_merge((array) $n, [
+                'data' => $n->data ? json_decode($n->data, true) : null,
+            ]));
+
+        return response()->json([
+            'success' => true,
+            'data'    => $items,
+            'meta'    => ['total' => $total, 'page' => $page, 'limit' => $limit],
+        ]);
     }
 
-    /**
-     * GET /notifications/unread-count
-     */
+    // GET /connecte/notifications/unread-count
     public function unreadCount(Request $request): JsonResponse
     {
-        $count = $request->user()->notifications()
+        $count = DB::table('notifications')
+            ->where('user_id', $request->user()->id_user_carbu)
             ->where('is_read', false)
             ->count();
 
-        return response()->json(['success' => true, 'unread_count' => $count]);
+        return response()->json(['success' => true, 'data' => ['count' => $count]]);
     }
 
-    /**
-     * PATCH /notifications/{id}/read
-     */
+    // PATCH /connecte/notifications/{id}/read
     public function markAsRead(Request $request, int $id): JsonResponse
     {
-        $notif = $request->user()->notifications()->findOrFail($id);
+        $userId = $request->user()->id_user_carbu;
 
-        if (!$notif->is_read) {
-            $notif->update(['is_read' => true, 'read_at' => now()]);
+        $exists = DB::table('notifications')
+            ->where('id_notification', $id)->where('user_id', $userId)->exists();
+
+        if (!$exists) {
+            return response()->json(['success' => false, 'message' => 'Notification introuvable.'], 404);
         }
+
+        DB::table('notifications')
+            ->where('id_notification', $id)
+            ->update(['is_read' => true, 'read_at' => now()]);
 
         return response()->json(['success' => true, 'message' => 'Notification marquée comme lue.']);
     }
 
-    /**
-     * PATCH /notifications/read-all
-     */
+    // PATCH /connecte/notifications/read-all
     public function markAllAsRead(Request $request): JsonResponse
     {
-        $count = $request->user()->notifications()
+        DB::table('notifications')
+            ->where('user_id', $request->user()->id_user_carbu)
             ->where('is_read', false)
             ->update(['is_read' => true, 'read_at' => now()]);
 
-        return response()->json(['success' => true, 'message' => "{$count} notifications marquées comme lues."]);
+        return response()->json(['success' => true, 'message' => 'Toutes les notifications marquées comme lues.']);
     }
 
-    /**
-     * DELETE /notifications/{id}
-     */
+    // DELETE /connecte/notifications/{id}
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $request->user()->notifications()->findOrFail($id)->delete();
+        $deleted = DB::table('notifications')
+            ->where('id_notification', $id)
+            ->where('user_id', $request->user()->id_user_carbu)
+            ->delete();
+
+        if (!$deleted) {
+            return response()->json(['success' => false, 'message' => 'Notification introuvable.'], 404);
+        }
+
         return response()->json(['success' => true, 'message' => 'Notification supprimée.']);
     }
 
-    /**
-     * DELETE /notifications
-     */
+    // DELETE /connecte/notifications
     public function destroyAll(Request $request): JsonResponse
     {
-        $count = $request->user()->notifications()->delete();
-        return response()->json(['success' => true, 'message' => "{$count} notifications supprimées."]);
+        DB::table('notifications')
+            ->where('user_id', $request->user()->id_user_carbu)
+            ->delete();
+
+        return response()->json(['success' => true, 'message' => 'Toutes les notifications supprimées.']);
     }
 }

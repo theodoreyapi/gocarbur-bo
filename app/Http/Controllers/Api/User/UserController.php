@@ -5,131 +5,153 @@ namespace App\Http\Controllers\Api\User;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class UserController extends Controller
 {
-    /**
-     * GET /user/profile
-     */
+    // ─────────────────────────────────────────────
+    // PROFILE — Profil complet
+    // GET /connecte/user/profile
+    // ─────────────────────────────────────────────
     public function profile(Request $request): JsonResponse
     {
-        $user = $request->user()->load([
-            'vehicles:id,user_id,brand,model,year,plate_number,is_primary',
-        ]);
+        $userId = $request->user()->id_user_carbu;
+
+        $user = DB::table('users_carbur')
+            ->where('id_user_carbu', $userId)
+            ->whereNull('deleted_at')
+            ->first([
+                'id_user_carbu', 'name', 'email', 'phone', 'city',
+                'avatar_url', 'subscription_type', 'subscription_expires_at',
+                'is_active', 'last_login_at', 'created_at',
+            ]);
+
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'Utilisateur introuvable.'], 404);
+        }
+
+        // Statistiques rapides
+        $vehicleCount  = DB::table('vehicles')->where('user_id', $userId)->whereNull('deleted_at')->count();
+        $reminderCount = DB::table('reminders')->where('user_id', $userId)->where('is_dismissed', false)->count();
 
         return response()->json([
             'success' => true,
-            'data'    => [
-                'id'                       => $user->id,
-                'name'                     => $user->name,
-                'phone'                    => $user->phone,
-                'city'                     => $user->city,
-                'avatar_url'               => $user->avatar_url,
-                'subscription_type'        => $user->subscription_type,
-                'subscription_expires_at'  => $user->subscription_expires_at,
-                'is_premium'               => $user->isPremium(),
-                'vehicles_count'           => $user->vehicles->count(),
-                'primary_vehicle'          => $user->vehicles->where('is_primary', true)->first(),
-                'created_at'               => $user->created_at,
-            ],
+            'data'    => array_merge((array) $user, [
+                'vehicle_count'  => $vehicleCount,
+                'reminder_count' => $reminderCount,
+            ]),
         ]);
     }
 
-    /**
-     * PUT /user/profile
-     */
+    // ─────────────────────────────────────────────
+    // UPDATE — Modifier le profil
+    // PUT /connecte/user/profile
+    // ─────────────────────────────────────────────
     public function update(Request $request): JsonResponse
     {
-        $data = $request->validate([
-            'name' => 'sometimes|string|max:100',
-            'city' => 'sometimes|string|max:100',
+        $userId = $request->user()->id_user_carbu;
+
+        $validated = $request->validate([
+            'name'  => 'sometimes|string|max:100',
+            'city'  => 'sometimes|nullable|string|max:100',
+            'email' => 'sometimes|nullable|email|unique:users_carbur,email,' . $userId . ',id_user_carbu',
         ]);
 
-        $request->user()->update($data);
+        DB::table('users_carbur')
+            ->where('id_user_carbu', $userId)
+            ->update(array_merge($validated, ['updated_at' => now()]));
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Profil mis à jour.',
-            'data'    => $request->user()->fresh(),
-        ]);
+        $user = DB::table('users_carbur')
+            ->where('id_user_carbu', $userId)
+            ->first(['id_user_carbu', 'name', 'email', 'phone', 'city', 'avatar_url', 'subscription_type']);
+
+        return response()->json(['success' => true, 'message' => 'Profil mis à jour.', 'data' => $user]);
     }
 
-    /**
-     * POST /user/profile/avatar
-     */
+    // ─────────────────────────────────────────────
+    // UPDATE AVATAR
+    // POST /connecte/user/profile/avatar
+    // ─────────────────────────────────────────────
     public function updateAvatar(Request $request): JsonResponse
     {
         $request->validate([
-            'avatar' => 'required|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'avatar' => 'required|image|mimes:jpeg,png,jpg,webp|max:2048',
         ]);
 
-        $user = $request->user();
+        $userId = $request->user()->id_user_carbu;
 
-        // Supprimer l'ancien avatar
-        if ($user->avatar_url) {
-            $oldPath = str_replace(Storage::url(''), '', $user->avatar_url);
-            Storage::disk('public')->delete($oldPath);
+        // Supprimer l'ancien avatar si existant
+        $current = DB::table('users_carbur')->where('id_user_carbu', $userId)->value('avatar_url');
+        if ($current) {
+            Storage::disk('public')->delete(str_replace('/storage/', '', $current));
         }
 
-        $path = $request->file('avatar')->store("avatars/{$user->id}", 'public');
-        $user->update(['avatar_url' => Storage::url($path)]);
+        $path      = $request->file('avatar')->store('avatars', 'public');
+        $avatarUrl = '/storage/' . $path;
 
-        return response()->json([
-            'success'    => true,
-            'avatar_url' => $user->avatar_url,
-        ]);
+        DB::table('users_carbur')
+            ->where('id_user_carbu', $userId)
+            ->update(['avatar_url' => $avatarUrl, 'updated_at' => now()]);
+
+        return response()->json(['success' => true, 'data' => ['avatar_url' => $avatarUrl]]);
     }
 
-    /**
-     * POST /user/fcm-token
-     */
+    // ─────────────────────────────────────────────
+    // FCM TOKEN — Enregistrer le token Firebase
+    // POST /connecte/user/fcm-token
+    // ─────────────────────────────────────────────
     public function updateFcmToken(Request $request): JsonResponse
     {
-        $request->validate([
-            'fcm_token' => 'required|string',
-        ]);
+        $request->validate(['fcm_token' => 'required|string|max:255']);
 
-        $request->user()->update(['fcm_token' => $request->fcm_token]);
+        DB::table('users_carbur')
+            ->where('id_user_carbu', $request->user()->id_user_carbu)
+            ->update(['fcm_token' => $request->fcm_token, 'updated_at' => now()]);
 
-        return response()->json(['success' => true]);
+        return response()->json(['success' => true, 'message' => 'Token FCM enregistré.']);
     }
 
-    /**
-     * DELETE /user/account
-     */
+    // ─────────────────────────────────────────────
+    // DELETE ACCOUNT — Supprimer son compte
+    // DELETE /connecte/user/account
+    // ─────────────────────────────────────────────
     public function deleteAccount(Request $request): JsonResponse
     {
-        $user = $request->user();
+        $userId = $request->user()->id_user_carbu;
 
-        // Révoquer tous les tokens
-        $user->tokens()->delete();
+        // Révoquer tous les tokens Sanctum
+        DB::table('personal_access_tokens')
+            ->where('tokenable_type', 'App\Models\UserCarbur')
+            ->where('tokenable_id', $userId)
+            ->delete();
 
-        // Soft delete
-        $user->delete();
+        // Soft delete du compte
+        DB::table('users_carbur')
+            ->where('id_user_carbu', $userId)
+            ->update(['deleted_at' => now(), 'is_active' => false]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Votre compte a été supprimé.',
-        ]);
+        return response()->json(['success' => true, 'message' => 'Compte supprimé.']);
     }
 
-    /**
-     * GET /user/subscription
-     */
+    // ─────────────────────────────────────────────
+    // SUBSCRIPTION — Abonnement actuel
+    // GET /connecte/user/subscription
+    // ─────────────────────────────────────────────
     public function subscription(Request $request): JsonResponse
     {
-        $user         = $request->user();
-        $subscription = $user->activeSubscription();
+        $userId = $request->user()->id_user_carbu;
+
+        $subscription = DB::table('subscriptions')
+            ->where('subscribable_type', 'App\Models\UserCarbur')
+            ->where('subscribable_id', $userId)
+            ->where('status', 'active')
+            ->orderByDesc('expires_at')
+            ->first();
 
         return response()->json([
             'success' => true,
-            'data'    => [
-                'type'       => $user->subscription_type,
-                'is_premium' => $user->isPremium(),
-                'expires_at' => $user->subscription_expires_at,
-                'active_sub' => $subscription,
-            ],
+            'data'    => $subscription,
         ]);
     }
 }

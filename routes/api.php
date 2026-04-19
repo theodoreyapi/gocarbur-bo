@@ -12,8 +12,7 @@ use App\Http\Controllers\Api\Admin\AdminUserController;
 use Illuminate\Support\Facades\Route;
 
 // Controllers Auth
-use App\Http\Controllers\Api\Auth\AuthController;
-
+use App\Http\Controllers\Api\Auth\ApiAuthController;
 // Controllers User
 use App\Http\Controllers\Api\User\UserController;
 use App\Http\Controllers\Api\User\VehicleController;
@@ -28,12 +27,10 @@ use App\Http\Controllers\Api\User\SubscriptionUserController;
 // Controllers Map / Geo
 use App\Http\Controllers\Api\Map\StationController;
 use App\Http\Controllers\Api\Map\GarageController;
-use App\Http\Controllers\Api\Map\PromotionController;
 use App\Http\Controllers\Api\Map\ReviewController;
 
 // Controllers Content
 use App\Http\Controllers\Api\Content\ArticleController;
-use App\Http\Controllers\Api\Content\BannerController;
 use App\Http\Controllers\Api\Content\AppVersionController;
 
 // Controllers Pro (stations & garages owners)
@@ -44,6 +41,8 @@ use App\Http\Controllers\Api\Pro\ProFuelPriceController;
 use App\Http\Controllers\Api\Pro\ProPromotionController;
 use App\Http\Controllers\Api\Pro\ProStatsController;
 use App\Http\Controllers\Api\Pro\ProSubscriptionController;
+use App\Http\Controllers\Api\Pub\BannerController;
+use App\Http\Controllers\Api\Pub\PromotionController;
 use App\Http\Controllers\Api\Webhook\CinetPayController;
 use App\Http\Controllers\Api\Webhook\MtnMomoController;
 use App\Http\Controllers\Api\Webhook\OrangeMoneyController;
@@ -51,14 +50,14 @@ use App\Http\Controllers\Api\Webhook\WaveController;
 
 /*
 |--------------------------------------------------------------------------
-| API Routes — AutoPlatform
-| Base URL : /api/v1
+| API Routes — GoCarbu
+| Base URL : /api/v1/gocarbu
 | Auth      : Laravel Sanctum (Bearer token)
 | Version   : 1.0
 |--------------------------------------------------------------------------
 */
 
-Route::prefix('v1')->group(function () {
+Route::prefix('v1/gocarbu/')->group(function () {
 
     /*
     |------------------------------------------------------------------
@@ -67,22 +66,32 @@ Route::prefix('v1')->group(function () {
     */
     Route::prefix('auth')->group(function () {
 
-        // Envoyer un code OTP par SMS
-        Route::post('request-otp', [AuthController::class, 'requestOtp']);
+        // ── Routes publiques ───────────────────────────────────────────────
 
-        // Vérifier le code OTP et retourner un token Sanctum
-        Route::post('verify-otp', [AuthController::class, 'verifyOtp']);
+        // Inscription classique (name + phone + password)
+        Route::post('register', [ApiAuthController::class, 'register']);
 
-        // Rafraîchir le token (rotation)
-        Route::post('refresh-token', [AuthController::class, 'refreshToken']);
+        // Connexion classique (email ou phone + password)
+        Route::post('login', [ApiAuthController::class, 'login']);
 
-        // Déconnexion (révoke le token courant)
-        Route::post('logout', [AuthController::class, 'logout'])
-            ->middleware('auth:sanctum');
+        // Envoyer un code OTP par email ou WhatsApp
+        Route::post('request-otp', [ApiAuthController::class, 'requestOtp']);
 
-        // Déconnexion de tous les appareils
-        Route::post('logout-all', [AuthController::class, 'logoutAll'])
-            ->middleware('auth:sanctum');
+        // Vérifier le code OTP → retourne un token Sanctum
+        Route::post('verify-otp', [ApiAuthController::class, 'verifyOtp']);
+
+        // ── Routes protégées (token Sanctum requis) ────────────────────────
+        Route::middleware('auth:sanctum')->group(function () {
+
+            // Rafraîchir le token (rotation)
+            Route::post('refresh-token', [ApiAuthController::class, 'refreshToken']);
+
+            // Déconnexion (révoque le token courant)
+            Route::post('logout', [ApiAuthController::class, 'logout']);
+
+            // Déconnexion de tous les appareils
+            Route::post('logout-all', [ApiAuthController::class, 'logoutAll']);
+        });
     });
 
     /*
@@ -109,7 +118,7 @@ Route::prefix('v1')->group(function () {
         // Stations vérifiées uniquement
         Route::get('verified', [StationController::class, 'verified']);
 
-        // Inscription partenaire depuis le site web
+        // Inscription partenaire
         Route::post('register', [StationController::class, 'register']);
 
         // Détail d'une station
@@ -221,10 +230,10 @@ Route::prefix('v1')->group(function () {
 
     /*
     |------------------------------------------------------------------
-    | BLOC 3 — ROUTES UTILISATEUR AUTHENTIFIÉ (Sanctum)
+    | BLOC 3 — ROUTES UTILISATEUR AUTHENTIFIÉ
     |------------------------------------------------------------------
     */
-    Route::middleware('auth:sanctum')->group(function () {
+    Route::prefix('connecte')->group(function () {
 
         // ── Profil utilisateur ───────────────────────────────────────
         Route::prefix('user')->group(function () {
@@ -320,8 +329,7 @@ Route::prefix('v1')->group(function () {
                 Route::post('/', [FuelLogController::class, 'store']);
 
                 // Statistiques mensuelles (Premium uniquement)
-                Route::get('stats', [FuelLogController::class, 'stats'])
-                    ->middleware('subscription:premium');
+                Route::get('stats', [FuelLogController::class, 'stats']);
 
                 // Détail d'un plein
                 Route::get('{id}', [FuelLogController::class, 'show']);
@@ -447,12 +455,11 @@ Route::prefix('v1')->group(function () {
             Route::post('login', [ProAuthController::class, 'login']);
             Route::post('forgot-password', [ProAuthController::class, 'forgotPassword']);
             Route::post('reset-password', [ProAuthController::class, 'resetPassword']);
-            Route::post('logout', [ProAuthController::class, 'logout'])
-                ->middleware('auth:pro');
+            Route::post('logout', [ProAuthController::class, 'logout']);
         });
 
         // Toutes les routes pro nécessitent auth + abonnement actif
-        Route::middleware(['auth:pro', 'pro.subscription'])->group(function () {
+        Route::prefix('subscription')->group(function () {
 
             // ── Profil Pro ───────────────────────────────────────────
             Route::get('profile', [ProAuthController::class, 'profile']);
@@ -491,14 +498,12 @@ Route::prefix('v1')->group(function () {
                 Route::get('/', [ProFuelPriceController::class, 'index']);
 
                 // Mettre à jour un prix (plan Pro/Premium uniquement)
-                Route::put('{fuelType}', [ProFuelPriceController::class, 'update'])
-                    ->middleware('pro.plan:pro,premium');
+                Route::put('{fuelType}', [ProFuelPriceController::class, 'update']);
 
                 // Mettre à jour tous les prix en une fois
-                Route::put('/', [ProFuelPriceController::class, 'updateAll'])
-                    ->middleware('pro.plan:pro,premium');
+                Route::put('/', [ProFuelPriceController::class, 'updateAll']);
 
-                // Historique des modifications de prix
+                // Historique des modifications de prix (plan Pro/Premium uniquement)
                 Route::get('history', [ProFuelPriceController::class, 'history']);
             });
 
@@ -509,20 +514,16 @@ Route::prefix('v1')->group(function () {
                 Route::get('/', [ProPromotionController::class, 'indexStation']);
 
                 // Créer une promo (plan Pro/Premium)
-                Route::post('/', [ProPromotionController::class, 'storeStation'])
-                    ->middleware('pro.plan:pro,premium');
+                Route::post('/', [ProPromotionController::class, 'storeStation']);
 
-                // Modifier une promo
-                Route::put('{id}', [ProPromotionController::class, 'updateStation'])
-                    ->middleware('pro.plan:pro,premium');
+                // Modifier une promo (plan Pro/Premium)
+                Route::put('{id}', [ProPromotionController::class, 'updateStation']);
 
-                // Activer / désactiver
-                Route::patch('{id}/toggle', [ProPromotionController::class, 'toggle'])
-                    ->middleware('pro.plan:pro,premium');
+                // Activer / désactiver (plan Pro/Premium)
+                Route::patch('{id}/toggle', [ProPromotionController::class, 'toggle']);
 
-                // Supprimer
-                Route::delete('{id}', [ProPromotionController::class, 'destroyStation'])
-                    ->middleware('pro.plan:pro,premium');
+                // Supprimer (plan Pro/Premium)
+                Route::delete('{id}', [ProPromotionController::class, 'destroyStation']);
             });
 
             // ── Gestion Garage ───────────────────────────────────────
@@ -555,17 +556,13 @@ Route::prefix('v1')->group(function () {
 
                 Route::get('/', [ProPromotionController::class, 'indexGarage']);
 
-                Route::post('/', [ProPromotionController::class, 'storeGarage'])
-                    ->middleware('pro.plan:pro,premium');
+                Route::post('/', [ProPromotionController::class, 'storeGarage']);
 
-                Route::put('{id}', [ProPromotionController::class, 'updateGarage'])
-                    ->middleware('pro.plan:pro,premium');
+                Route::put('{id}', [ProPromotionController::class, 'updateGarage']);
 
-                Route::patch('{id}/toggle', [ProPromotionController::class, 'toggle'])
-                    ->middleware('pro.plan:pro,premium');
+                Route::patch('{id}/toggle', [ProPromotionController::class, 'toggle']);
 
-                Route::delete('{id}', [ProPromotionController::class, 'destroyGarage'])
-                    ->middleware('pro.plan:pro,premium');
+                Route::delete('{id}', [ProPromotionController::class, 'destroyGarage']);
             });
 
             // ── Statistiques Pro ─────────────────────────────────────
@@ -575,16 +572,13 @@ Route::prefix('v1')->group(function () {
                 Route::get('overview', [ProStatsController::class, 'overview']);
 
                 // Stats d'une station spécifique
-                Route::get('stations/{id}', [ProStatsController::class, 'station'])
-                    ->middleware('pro.plan:pro,premium');
+                Route::get('stations/{id}', [ProStatsController::class, 'station']);
 
                 // Stats d'un garage spécifique
-                Route::get('garages/{id}', [ProStatsController::class, 'garage'])
-                    ->middleware('pro.plan:pro,premium');
+                Route::get('garages/{id}', [ProStatsController::class, 'garage']);
 
                 // Statistiques avancées (vues par jour/semaine)
-                Route::get('advanced', [ProStatsController::class, 'advanced'])
-                    ->middleware('pro.plan:premium');
+                Route::get('advanced', [ProStatsController::class, 'advanced']);
 
                 // Avis reçus
                 Route::get('reviews', [ProStatsController::class, 'reviews']);
@@ -639,263 +633,263 @@ Route::prefix('v1')->group(function () {
     | BLOC 6 — ADMINISTRATION (admin dashboard)
     |------------------------------------------------------------------
     */
-    Route::prefix('admin')->group(function () {
+    // Route::prefix('admin')->group(function () {
 
-        // Auth admin
-        Route::post('auth/login', [AdminAuthController::class, 'login']);
-        Route::post('auth/logout', [AdminAuthController::class, 'logout'])
-            ->middleware('auth:admin');
+    //     // Auth admin
+    //     Route::post('auth/login', [AdminAuthController::class, 'login']);
+    //     Route::post('auth/logout', [AdminAuthController::class, 'logout'])
+    //         ->middleware('auth:admin');
 
-        Route::middleware(['auth:admin'])->group(function () {
+    //     Route::middleware(['auth:admin'])->group(function () {
 
-            // ── Dashboard ────────────────────────────────────────────
-            Route::prefix('dashboard')->group(function () {
+    //         // ── Dashboard ────────────────────────────────────────────
+    //         Route::prefix('dashboard')->group(function () {
 
-                // Métriques globales
-                Route::get('overview', [AdminDashboardController::class, 'overview']);
+    //             // Métriques globales
+    //             Route::get('overview', [AdminDashboardController::class, 'overview']);
 
-                // Revenus par période
-                Route::get('revenue', [AdminDashboardController::class, 'revenue']);
+    //             // Revenus par période
+    //             Route::get('revenue', [AdminDashboardController::class, 'revenue']);
 
-                // Croissance utilisateurs
-                Route::get('growth', [AdminDashboardController::class, 'growth']);
+    //             // Croissance utilisateurs
+    //             Route::get('growth', [AdminDashboardController::class, 'growth']);
 
-                // Activité temps réel
-                Route::get('activity', [AdminDashboardController::class, 'activity']);
-            });
+    //             // Activité temps réel
+    //             Route::get('activity', [AdminDashboardController::class, 'activity']);
+    //         });
 
-            // ── Gestion Utilisateurs ─────────────────────────────────
-            Route::prefix('users')->group(function () {
+    //         // ── Gestion Utilisateurs ─────────────────────────────────
+    //         Route::prefix('users')->group(function () {
 
-                // Liste avec filtres et pagination
-                Route::get('/', [AdminUserController::class, 'index']);
+    //             // Liste avec filtres et pagination
+    //             Route::get('/', [AdminUserController::class, 'index']);
 
-                // Détail d'un utilisateur
-                Route::get('{id}', [AdminUserController::class, 'show']);
+    //             // Détail d'un utilisateur
+    //             Route::get('{id}', [AdminUserController::class, 'show']);
 
-                // Modifier un utilisateur
-                Route::put('{id}', [AdminUserController::class, 'update']);
+    //             // Modifier un utilisateur
+    //             Route::put('{id}', [AdminUserController::class, 'update']);
 
-                // Suspendre / réactiver
-                Route::patch('{id}/toggle-active', [AdminUserController::class, 'toggleActive']);
+    //             // Suspendre / réactiver
+    //             Route::patch('{id}/toggle-active', [AdminUserController::class, 'toggleActive']);
 
-                // Attribuer premium manuellement
-                Route::post('{id}/grant-premium', [AdminUserController::class, 'grantPremium']);
+    //             // Attribuer premium manuellement
+    //             Route::post('{id}/grant-premium', [AdminUserController::class, 'grantPremium']);
 
-                // Supprimer le compte
-                Route::delete('{id}', [AdminUserController::class, 'destroy']);
+    //             // Supprimer le compte
+    //             Route::delete('{id}', [AdminUserController::class, 'destroy']);
 
-                // Export CSV
-                Route::get('export/csv', [AdminUserController::class, 'exportCsv']);
-            });
+    //             // Export CSV
+    //             Route::get('export/csv', [AdminUserController::class, 'exportCsv']);
+    //         });
 
-            // ── Gestion Stations ─────────────────────────────────────
-            Route::prefix('stations')->group(function () {
+    //         // ── Gestion Stations ─────────────────────────────────────
+    //         Route::prefix('stations')->group(function () {
 
-                // Liste
-                Route::get('/', [AdminStationController::class, 'index']);
+    //             // Liste
+    //             Route::get('/', [AdminStationController::class, 'index']);
 
-                // Créer une station (admin)
-                Route::post('/', [AdminStationController::class, 'store']);
+    //             // Créer une station (admin)
+    //             Route::post('/', [AdminStationController::class, 'store']);
 
-                // Détail
-                Route::get('{id}', [AdminStationController::class, 'show']);
+    //             // Détail
+    //             Route::get('{id}', [AdminStationController::class, 'show']);
 
-                // Modifier
-                Route::put('{id}', [AdminStationController::class, 'update']);
+    //             // Modifier
+    //             Route::put('{id}', [AdminStationController::class, 'update']);
 
-                // Vérifier (badge vérifié)
-                Route::patch('{id}/verify', [AdminStationController::class, 'verify']);
+    //             // Vérifier (badge vérifié)
+    //             Route::patch('{id}/verify', [AdminStationController::class, 'verify']);
 
-                // Retirer la vérification
-                Route::patch('{id}/unverify', [AdminStationController::class, 'unverify']);
+    //             // Retirer la vérification
+    //             Route::patch('{id}/unverify', [AdminStationController::class, 'unverify']);
 
-                // Activer / désactiver
-                Route::patch('{id}/toggle-active', [AdminStationController::class, 'toggleActive']);
+    //             // Activer / désactiver
+    //             Route::patch('{id}/toggle-active', [AdminStationController::class, 'toggleActive']);
 
-                // Forcer les prix carburant
-                Route::put('{id}/prices', [AdminStationController::class, 'updatePrices']);
+    //             // Forcer les prix carburant
+    //             Route::put('{id}/prices', [AdminStationController::class, 'updatePrices']);
 
-                // Supprimer
-                Route::delete('{id}', [AdminStationController::class, 'destroy']);
-            });
+    //             // Supprimer
+    //             Route::delete('{id}', [AdminStationController::class, 'destroy']);
+    //         });
 
-            // ── Gestion Garages ──────────────────────────────────────
-            Route::prefix('garages')->group(function () {
+    //         // ── Gestion Garages ──────────────────────────────────────
+    //         Route::prefix('garages')->group(function () {
 
-                Route::get('/', [AdminGarageController::class, 'index']);
-                Route::post('/', [AdminGarageController::class, 'store']);
-                Route::get('{id}', [AdminGarageController::class, 'show']);
-                Route::put('{id}', [AdminGarageController::class, 'update']);
-                Route::patch('{id}/verify', [AdminGarageController::class, 'verify']);
-                Route::patch('{id}/toggle-active', [AdminGarageController::class, 'toggleActive']);
-                Route::delete('{id}', [AdminGarageController::class, 'destroy']);
-            });
+    //             Route::get('/', [AdminGarageController::class, 'index']);
+    //             Route::post('/', [AdminGarageController::class, 'store']);
+    //             Route::get('{id}', [AdminGarageController::class, 'show']);
+    //             Route::put('{id}', [AdminGarageController::class, 'update']);
+    //             Route::patch('{id}/verify', [AdminGarageController::class, 'verify']);
+    //             Route::patch('{id}/toggle-active', [AdminGarageController::class, 'toggleActive']);
+    //             Route::delete('{id}', [AdminGarageController::class, 'destroy']);
+    //         });
 
-            // ── Demandes partenaires ─────────────────────────────────
-            Route::prefix('partner-requests')->group(function () {
+    //         // ── Demandes partenaires ─────────────────────────────────
+    //         Route::prefix('partner-requests')->group(function () {
 
-                // Liste des demandes
-                Route::get('/', [AdminPartnerRequestController::class, 'index']);
+    //             // Liste des demandes
+    //             Route::get('/', [AdminPartnerRequestController::class, 'index']);
 
-                // Détail
-                Route::get('{id}', [AdminPartnerRequestController::class, 'show']);
+    //             // Détail
+    //             Route::get('{id}', [AdminPartnerRequestController::class, 'show']);
 
-                // Approuver et créer le compte pro
-                Route::post('{id}/approve', [AdminPartnerRequestController::class, 'approve']);
+    //             // Approuver et créer le compte pro
+    //             Route::post('{id}/approve', [AdminPartnerRequestController::class, 'approve']);
 
-                // Rejeter
-                Route::post('{id}/reject', [AdminPartnerRequestController::class, 'reject']);
+    //             // Rejeter
+    //             Route::post('{id}/reject', [AdminPartnerRequestController::class, 'reject']);
 
-                // Marquer comme contacté
-                Route::patch('{id}/contacted', [AdminPartnerRequestController::class, 'contacted']);
-            });
+    //             // Marquer comme contacté
+    //             Route::patch('{id}/contacted', [AdminPartnerRequestController::class, 'contacted']);
+    //         });
 
-            // ── Gestion Articles ─────────────────────────────────────
-            Route::prefix('articles')->group(function () {
+    //         // ── Gestion Articles ─────────────────────────────────────
+    //         Route::prefix('articles')->group(function () {
 
-                Route::get('/', [AdminArticleController::class, 'index']);
-                Route::post('/', [AdminArticleController::class, 'store']);
-                Route::get('{id}', [AdminArticleController::class, 'show']);
-                Route::put('{id}', [AdminArticleController::class, 'update']);
+    //             Route::get('/', [AdminArticleController::class, 'index']);
+    //             Route::post('/', [AdminArticleController::class, 'store']);
+    //             Route::get('{id}', [AdminArticleController::class, 'show']);
+    //             Route::put('{id}', [AdminArticleController::class, 'update']);
 
-                // Publier / dépublier
-                Route::patch('{id}/publish', [AdminArticleController::class, 'publish']);
-                Route::patch('{id}/unpublish', [AdminArticleController::class, 'unpublish']);
+    //             // Publier / dépublier
+    //             Route::patch('{id}/publish', [AdminArticleController::class, 'publish']);
+    //             Route::patch('{id}/unpublish', [AdminArticleController::class, 'unpublish']);
 
-                // Upload image de couverture
-                Route::post('{id}/cover', [AdminArticleController::class, 'uploadCover']);
+    //             // Upload image de couverture
+    //             Route::post('{id}/cover', [AdminArticleController::class, 'uploadCover']);
 
-                Route::delete('{id}', [AdminArticleController::class, 'destroy']);
-            });
+    //             Route::delete('{id}', [AdminArticleController::class, 'destroy']);
+    //         });
 
-            // ── Gestion Abonnements ──────────────────────────────────
-            Route::prefix('subscriptions')->group(function () {
+    //         // ── Gestion Abonnements ──────────────────────────────────
+    //         Route::prefix('subscriptions')->group(function () {
 
-                // Tous les abonnements actifs
-                Route::get('/', [AdminSubscriptionController::class, 'index']);
+    //             // Tous les abonnements actifs
+    //             Route::get('/', [AdminSubscriptionController::class, 'index']);
 
-                // Détail
-                Route::get('{id}', [AdminSubscriptionController::class, 'show']);
+    //             // Détail
+    //             Route::get('{id}', [AdminSubscriptionController::class, 'show']);
 
-                // Annuler manuellement
-                Route::post('{id}/cancel', [AdminSubscriptionController::class, 'cancel']);
+    //             // Annuler manuellement
+    //             Route::post('{id}/cancel', [AdminSubscriptionController::class, 'cancel']);
 
-                // Prolonger manuellement
-                Route::post('{id}/extend', [AdminSubscriptionController::class, 'extend']);
+    //             // Prolonger manuellement
+    //             Route::post('{id}/extend', [AdminSubscriptionController::class, 'extend']);
 
-                // Stats abonnements (revenus par plan)
-                Route::get('stats/revenue', [AdminSubscriptionController::class, 'revenueStats']);
-            });
+    //             // Stats abonnements (revenus par plan)
+    //             Route::get('stats/revenue', [AdminSubscriptionController::class, 'revenueStats']);
+    //         });
 
-            // ── Gestion Paiements ────────────────────────────────────
-            Route::prefix('payments')->group(function () {
+    //         // ── Gestion Paiements ────────────────────────────────────
+    //         Route::prefix('payments')->group(function () {
 
-                Route::get('/', [AdminPaymentController::class, 'index']);
-                Route::get('{id}', [AdminPaymentController::class, 'show']);
+    //             Route::get('/', [AdminPaymentController::class, 'index']);
+    //             Route::get('{id}', [AdminPaymentController::class, 'show']);
 
-                // Relancer un paiement échoué
-                Route::post('{id}/retry', [AdminPaymentController::class, 'retry']);
+    //             // Relancer un paiement échoué
+    //             Route::post('{id}/retry', [AdminPaymentController::class, 'retry']);
 
-                // Rembourser
-                Route::post('{id}/refund', [AdminPaymentController::class, 'refund']);
+    //             // Rembourser
+    //             Route::post('{id}/refund', [AdminPaymentController::class, 'refund']);
 
-                // Export CSV
-                Route::get('export/csv', [AdminPaymentController::class, 'exportCsv']);
-            });
+    //             // Export CSV
+    //             Route::get('export/csv', [AdminPaymentController::class, 'exportCsv']);
+    //         });
 
-            // ── Gestion Bannières Pub ────────────────────────────────
-            Route::prefix('banners')->group(function () {
+    //         // ── Gestion Bannières Pub ────────────────────────────────
+    //         Route::prefix('banners')->group(function () {
 
-                Route::get('/', [AdminBannerController::class, 'index']);
-                Route::post('/', [AdminBannerController::class, 'store']);
-                Route::get('{id}', [AdminBannerController::class, 'show']);
-                Route::put('{id}', [AdminBannerController::class, 'update']);
-                Route::patch('{id}/toggle-active', [AdminBannerController::class, 'toggleActive']);
-                Route::delete('{id}', [AdminBannerController::class, 'destroy']);
+    //             Route::get('/', [AdminBannerController::class, 'index']);
+    //             Route::post('/', [AdminBannerController::class, 'store']);
+    //             Route::get('{id}', [AdminBannerController::class, 'show']);
+    //             Route::put('{id}', [AdminBannerController::class, 'update']);
+    //             Route::patch('{id}/toggle-active', [AdminBannerController::class, 'toggleActive']);
+    //             Route::delete('{id}', [AdminBannerController::class, 'destroy']);
 
-                // Stats impressions/clics
-                Route::get('{id}/stats', [AdminBannerController::class, 'stats']);
-            });
+    //             // Stats impressions/clics
+    //             Route::get('{id}/stats', [AdminBannerController::class, 'stats']);
+    //         });
 
-            // ── Gestion Avis ─────────────────────────────────────────
-            Route::prefix('reviews')->group(function () {
+    //         // ── Gestion Avis ─────────────────────────────────────────
+    //         Route::prefix('reviews')->group(function () {
 
-                // Avis en attente de modération
-                Route::get('pending', [AdminReviewController::class, 'pending']);
+    //             // Avis en attente de modération
+    //             Route::get('pending', [AdminReviewController::class, 'pending']);
 
-                Route::get('/', [AdminReviewController::class, 'index']);
-                Route::get('{id}', [AdminReviewController::class, 'show']);
+    //             Route::get('/', [AdminReviewController::class, 'index']);
+    //             Route::get('{id}', [AdminReviewController::class, 'show']);
 
-                // Approuver un avis
-                Route::patch('{id}/approve', [AdminReviewController::class, 'approve']);
+    //             // Approuver un avis
+    //             Route::patch('{id}/approve', [AdminReviewController::class, 'approve']);
 
-                // Rejeter / supprimer
-                Route::delete('{id}', [AdminReviewController::class, 'destroy']);
-            });
+    //             // Rejeter / supprimer
+    //             Route::delete('{id}', [AdminReviewController::class, 'destroy']);
+    //         });
 
-            // ── Notifications Push (broadcast) ───────────────────────
-            Route::prefix('notifications')->group(function () {
+    //         // ── Notifications Push (broadcast) ───────────────────────
+    //         Route::prefix('notifications')->group(function () {
 
-                // Envoyer à tous les utilisateurs
-                Route::post('broadcast', [AdminNotificationController::class, 'broadcast']);
+    //             // Envoyer à tous les utilisateurs
+    //             Route::post('broadcast', [AdminNotificationController::class, 'broadcast']);
 
-                // Envoyer à une ville
-                Route::post('broadcast-city', [AdminNotificationController::class, 'broadcastCity']);
+    //             // Envoyer à une ville
+    //             Route::post('broadcast-city', [AdminNotificationController::class, 'broadcastCity']);
 
-                // Envoyer à un utilisateur spécifique
-                Route::post('send-to-user', [AdminNotificationController::class, 'sendToUser']);
+    //             // Envoyer à un utilisateur spécifique
+    //             Route::post('send-to-user', [AdminNotificationController::class, 'sendToUser']);
 
-                // Historique des broadcasts
-                Route::get('history', [AdminNotificationController::class, 'history']);
-            });
+    //             // Historique des broadcasts
+    //             Route::get('history', [AdminNotificationController::class, 'history']);
+    //         });
 
-            // ── Propriétaires Pro ────────────────────────────────────
-            Route::prefix('pro-owners')->group(function () {
+    //         // ── Propriétaires Pro ────────────────────────────────────
+    //         Route::prefix('pro-owners')->group(function () {
 
-                // Tous les owners (stations + garages)
-                Route::get('/', [AdminProOwnerController::class, 'index']);
-                Route::get('{type}/{id}', [AdminProOwnerController::class, 'show']);
+    //             // Tous les owners (stations + garages)
+    //             Route::get('/', [AdminProOwnerController::class, 'index']);
+    //             Route::get('{type}/{id}', [AdminProOwnerController::class, 'show']);
 
-                // Activer / suspendre
-                Route::patch('{type}/{id}/toggle-active', [AdminProOwnerController::class, 'toggleActive']);
+    //             // Activer / suspendre
+    //             Route::patch('{type}/{id}/toggle-active', [AdminProOwnerController::class, 'toggleActive']);
 
-                // Réinitialiser le mot de passe
-                Route::post('{type}/{id}/reset-password', [AdminProOwnerController::class, 'resetPassword']);
-            });
+    //             // Réinitialiser le mot de passe
+    //             Route::post('{type}/{id}/reset-password', [AdminProOwnerController::class, 'resetPassword']);
+    //         });
 
-            // ── Configuration application ────────────────────────────
-            Route::prefix('settings')->group(function () {
+    //         // ── Configuration application ────────────────────────────
+    //         Route::prefix('settings')->group(function () {
 
-                // Toutes les configurations
-                Route::get('/', [AdminSettingController::class, 'index']);
+    //             // Toutes les configurations
+    //             Route::get('/', [AdminSettingController::class, 'index']);
 
-                // Modifier une configuration
-                Route::put('{key}', [AdminSettingController::class, 'update']);
+    //             // Modifier une configuration
+    //             Route::put('{key}', [AdminSettingController::class, 'update']);
 
-                // Modifier en masse
-                Route::put('/', [AdminSettingController::class, 'updateBulk']);
-            });
+    //             // Modifier en masse
+    //             Route::put('/', [AdminSettingController::class, 'updateBulk']);
+    //         });
 
-            // ── Versions App ─────────────────────────────────────────
-            Route::prefix('app-versions')->group(function () {
+    //         // ── Versions App ─────────────────────────────────────────
+    //         Route::prefix('app-versions')->group(function () {
 
-                Route::get('/', [AdminAppVersionController::class, 'index']);
-                Route::post('/', [AdminAppVersionController::class, 'store']);
-                Route::put('{id}', [AdminAppVersionController::class, 'update']);
-                Route::patch('{id}/set-current', [AdminAppVersionController::class, 'setCurrent']);
-                Route::delete('{id}', [AdminAppVersionController::class, 'destroy']);
-            });
+    //             Route::get('/', [AdminAppVersionController::class, 'index']);
+    //             Route::post('/', [AdminAppVersionController::class, 'store']);
+    //             Route::put('{id}', [AdminAppVersionController::class, 'update']);
+    //             Route::patch('{id}/set-current', [AdminAppVersionController::class, 'setCurrent']);
+    //             Route::delete('{id}', [AdminAppVersionController::class, 'destroy']);
+    //         });
 
-            // ── Journaux d'activité ──────────────────────────────────
-            Route::prefix('activity-logs')->group(function () {
+    //         // ── Journaux d'activité ──────────────────────────────────
+    //         Route::prefix('activity-logs')->group(function () {
 
-                Route::get('/', [AdminActivityLogController::class, 'index']);
-                Route::get('{id}', [AdminActivityLogController::class, 'show']);
+    //             Route::get('/', [AdminActivityLogController::class, 'index']);
+    //             Route::get('{id}', [AdminActivityLogController::class, 'show']);
 
-                // Export CSV
-                Route::get('export/csv', [AdminActivityLogController::class, 'exportCsv']);
-            });
-        });
-    });
+    //             // Export CSV
+    //             Route::get('export/csv', [AdminActivityLogController::class, 'exportCsv']);
+    //         });
+    //     });
+    // });
 });

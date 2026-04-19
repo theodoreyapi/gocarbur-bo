@@ -4,202 +4,329 @@ namespace App\Http\Controllers\Api\Map;
 
 use App\Http\Controllers\Controller;
 use App\Models\Garage;
+use App\Models\GarageService;
 use App\Models\GarageView;
-use Illuminate\Http\JsonResponse;
+use App\Models\Promotion;
+use App\Models\PartnerRequest;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 
 class GarageController extends Controller
 {
-    /**
-     * GET /garages
-     */
+    // ─────────────────────────────────────────────
+    // INDEX
+    // GET /garages?lat=&lng=&radius=&type=&city=&limit=20
+    // ─────────────────────────────────────────────
     public function index(Request $request): JsonResponse
     {
         $request->validate([
-            'lat'    => 'nullable|numeric',
-            'lng'    => 'nullable|numeric',
-            'radius' => 'nullable|integer|min:1|max:50',
-            'type'   => 'nullable|string',
-            'city'   => 'nullable|string',
+            'lat'    => 'nullable|numeric|between:-90,90',
+            'lng'    => 'nullable|numeric|between:-180,180',
+            'radius' => 'nullable|numeric|min:0.1|max:100',
+            'type'   => 'nullable|string|max:50',
+            'city'   => 'nullable|string|max:100',
+            'limit'  => 'nullable|integer|min:1|max:100',
+            'page'   => 'nullable|integer|min:1',
         ]);
 
-        $query = Garage::active()
-            ->with('services:id,garage_id,service,price_range')
-            ->withCount('reviews');
+        $lat    = $request->input('lat');
+        $lng    = $request->input('lng');
+        $radius = $request->input('radius', 10);
+        $limit  = $request->input('limit', 20);
+        $page   = max(1, (int) $request->input('page', 1));
 
-        if ($request->lat && $request->lng) {
-            $query->nearby($request->lat, $request->lng, $request->input('radius', 10));
+        $query = DB::table('garages')
+            ->where('is_active', true)
+            ->whereNull('deleted_at');
+
+        if ($request->filled('city')) {
+            $query->where('city', 'like', '%' . $request->city . '%');
         }
 
-        if ($request->type) $query->where('type', $request->type);
-        if ($request->city) $query->where('city', 'like', "%{$request->city}%");
-        if ($request->verified) $query->verified();
-
-        // Filtre par service spécifique
-        if ($request->service) {
-            $query->whereHas('services', fn($q) => $q->where('service', $request->service));
+        if ($request->filled('type')) {
+            $query->where('type', $request->type);
         }
 
-        $query->orderByRaw("FIELD(subscription_type, 'premium', 'pro', 'free')")
-              ->orderByDesc('rating');
+        if ($lat && $lng) {
+            $h = $this->haversine($lat, $lng);
+            $query->selectRaw("*, ($h) AS distance")
+                  ->havingRaw('distance <= ?', [$radius])
+                  ->orderBy('distance');
+        } else {
+            $query->select('*')->orderByDesc('rating');
+        }
 
-        $garages = $query->paginate($request->input('per_page', 20));
-
-        return response()->json(['success' => true, 'data' => $garages]);
-    }
-
-    /**
-     * GET /garages/nearby
-     */
-    public function nearby(Request $request): JsonResponse
-    {
-        $request->validate([
-            'lat'    => 'required|numeric',
-            'lng'    => 'required|numeric',
-            'radius' => 'nullable|integer|min:1|max:50',
-        ]);
-
-        $garages = Garage::active()
-            ->nearby($request->lat, $request->lng, $request->input('radius', 5))
-            ->with('services:id,garage_id,service')
-            ->limit(30)
-            ->get();
-
-        return response()->json(['success' => true, 'data' => $garages]);
-    }
-
-    /**
-     * GET /garages/by-type?type=depannage
-     */
-    public function byType(Request $request): JsonResponse
-    {
-        $request->validate(['type' => 'required|string']);
-
-        $garages = Garage::active()
-            ->where('type', $request->type)
-            ->with('services:id,garage_id,service')
-            ->when($request->lat && $request->lng, fn($q) =>
-                $q->nearby($request->lat, $request->lng, $request->input('radius', 20))
-            )
-            ->paginate(20);
-
-        return response()->json(['success' => true, 'data' => $garages]);
-    }
-
-    /**
-     * GET /garages/emergency
-     * Dépanneurs ouverts en ce moment
-     */
-    public function emergency(Request $request): JsonResponse
-    {
-        $request->validate([
-            'lat' => 'required|numeric',
-            'lng' => 'required|numeric',
-        ]);
-
-        $now     = now()->format('H:i:s');
-        $garages = Garage::active()
-            ->where('type', 'depannage')
-            ->where(fn($q) =>
-                $q->where('is_open_24h', true)
-                  ->orWhere(fn($q2) =>
-                      $q2->where('opens_at', '<=', $now)->where('closes_at', '>=', $now)
-                  )
-            )
-            ->nearby($request->lat, $request->lng, 30)
-            ->with('services:id,garage_id,service')
-            ->limit(10)
-            ->get();
-
-        return response()->json(['success' => true, 'data' => $garages]);
-    }
-
-    /**
-     * POST /garages/register
-     */
-    public function register(Request $request): JsonResponse
-    {
-        $data = $request->validate([
-            'business_name' => 'required|string|max:150',
-            'contact_name'  => 'required|string|max:100',
-            'contact_phone' => 'required|string|max:20',
-            'contact_email' => 'nullable|email',
-            'address'       => 'required|string|max:255',
-            'city'          => 'required|string|max:100',
-            'latitude'      => 'nullable|numeric',
-            'longitude'     => 'nullable|numeric',
-            'message'       => 'nullable|string|max:1000',
-        ]);
-
-        $data['type'] = 'garage';
-        \App\Models\PartnerRequest::create($data);
+        $total = (clone $query)->count();
+        $items = $query->offset(($page - 1) * $limit)->limit($limit)->get();
 
         return response()->json([
             'success' => true,
-            'message' => 'Votre demande a été reçue. Notre équipe vous contactera sous 48h.',
+            'data'    => $items,
+            'meta'    => ['total' => $total, 'page' => $page, 'limit' => $limit],
+        ]);
+    }
+
+    // ─────────────────────────────────────────────
+    // NEARBY
+    // GET /garages/nearby?lat=&lng=&radius=5
+    // ─────────────────────────────────────────────
+    public function nearby(Request $request): JsonResponse
+    {
+        $request->validate([
+            'lat'    => 'required|numeric|between:-90,90',
+            'lng'    => 'required|numeric|between:-180,180',
+            'radius' => 'nullable|numeric|min:0.1|max:50',
+            'limit'  => 'nullable|integer|min:1|max:50',
+        ]);
+
+        $lat    = $request->input('lat');
+        $lng    = $request->input('lng');
+        $radius = $request->input('radius', 5);
+        $limit  = $request->input('limit', 10);
+        $h      = $this->haversine($lat, $lng);
+
+        $garages = DB::table('garages')
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->selectRaw("*, ($h) AS distance")
+            ->havingRaw('distance <= ?', [$radius])
+            ->orderBy('distance')
+            ->limit($limit)
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data'    => $garages,
+            'meta'    => ['lat' => $lat, 'lng' => $lng, 'radius' => $radius, 'unit' => 'km'],
+        ]);
+    }
+
+    // ─────────────────────────────────────────────
+    // BY TYPE
+    // GET /garages/by-type?type=depannage
+    // ─────────────────────────────────────────────
+    public function byType(Request $request): JsonResponse
+    {
+        $request->validate([
+            'type'  => 'required|string|max:50',
+            'limit' => 'nullable|integer|min:1|max:100',
+            'page'  => 'nullable|integer|min:1',
+        ]);
+
+        $limit = $request->input('limit', 20);
+        $page  = max(1, (int) $request->input('page', 1));
+
+        $query = DB::table('garages')
+            ->where('is_active', true)
+            ->where('type', $request->type)
+            ->whereNull('deleted_at')
+            ->orderByDesc('rating');
+
+        $total = $query->count();
+        $items = $query->offset(($page - 1) * $limit)->limit($limit)->get();
+
+        return response()->json([
+            'success' => true,
+            'data'    => $items,
+            'meta'    => ['total' => $total, 'page' => $page, 'limit' => $limit],
+        ]);
+    }
+
+    // ─────────────────────────────────────────────
+    // EMERGENCY — Dépanneurs disponibles (urgence)
+    // GET /garages/emergency?lat=&lng=&radius=20
+    // ─────────────────────────────────────────────
+    public function emergency(Request $request): JsonResponse
+    {
+        $request->validate([
+            'lat'    => 'nullable|numeric|between:-90,90',
+            'lng'    => 'nullable|numeric|between:-180,180',
+            'radius' => 'nullable|numeric|min:0.1|max:100',
+        ]);
+
+        $lat    = $request->input('lat');
+        $lng    = $request->input('lng');
+        $radius = $request->input('radius', 20);
+
+        $query = DB::table('garages')
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->where(function ($q) {
+                $q->where('type', 'depannage')->orWhere('is_open_24h', true);
+            });
+
+        if ($lat && $lng) {
+            $h = $this->haversine($lat, $lng);
+            $query->selectRaw("*, ($h) AS distance")
+                  ->havingRaw('distance <= ?', [$radius])
+                  ->orderBy('distance');
+        } else {
+            $query->select('*')->orderByDesc('rating');
+        }
+
+        return response()->json([
+            'success' => true,
+            'data'    => $query->limit(20)->get(),
+        ]);
+    }
+
+    // ─────────────────────────────────────────────
+    // REGISTER — Inscription partenaire garage
+    // POST /garages/register
+    // ─────────────────────────────────────────────
+    public function register(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'business_name'  => 'required|string|max:150',
+            'contact_name'   => 'required|string|max:100',
+            'contact_phone'  => 'required|string|max:20',
+            'contact_email'  => 'nullable|email',
+            'address'        => 'required|string|max:255',
+            'city'           => 'required|string|max:100',
+            'latitude'       => 'nullable|numeric|between:-90,90',
+            'longitude'      => 'nullable|numeric|between:-180,180',
+            'message'        => 'nullable|string|max:1000',
+        ]);
+
+        $id = DB::table('partner_requests')->insertGetId(array_merge($validated, [
+            'type'       => 'garage',
+            'status'     => 'pending',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Demande partenaire envoyée. Nous vous contacterons sous 48h.',
+            'data'    => ['id' => $id],
         ], 201);
     }
 
-    /**
-     * GET /garages/{id}
-     */
+    // ─────────────────────────────────────────────
+    // SHOW — Détail d'un garage
+    // GET /garages/{id}
+    // ─────────────────────────────────────────────
     public function show(Request $request, int $id): JsonResponse
     {
-        $garage = Garage::active()
-            ->with([
-                'services:id,garage_id,service,price_range',
-                'promotions' => fn($q) => $q->active(),
-                'reviews'    => fn($q) => $q->with('user:id,name,avatar_url')->latest()->limit(5),
-            ])
-            ->withCount('reviews')
-            ->findOrFail($id);
+        $garage = DB::table('garages')
+            ->where('id_garage', $id)
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->first();
 
-        GarageView::create([
-            'garage_id'  => $garage->id,
-            'user_id'    => $request->user()?->id,
+        if (!$garage) {
+            return response()->json(['success' => false, 'message' => 'Garage introuvable.'], 404);
+        }
+
+        DB::table('garages')->where('id_garage', $id)->increment('views_count');
+
+        DB::table('garage_views')->insert([
+            'garage_id'  => $id,
+            'user_id'    => $request->user()?->id_user_carbu,
             'ip_address' => $request->ip(),
             'action'     => 'view_profile',
             'viewed_at'  => now(),
         ]);
 
-        $garage->increment('views_count');
+        $services = DB::table('garage_services')->where('garage_id', $id)->get();
 
-        return response()->json(['success' => true, 'data' => $garage]);
+        return response()->json([
+            'success' => true,
+            'data'    => array_merge((array) $garage, ['services' => $services]),
+        ]);
     }
 
-    /**
-     * GET /garages/{id}/services
-     */
+    // ─────────────────────────────────────────────
+    // SERVICES
+    // GET /garages/{id}/services
+    // ─────────────────────────────────────────────
     public function services(int $id): JsonResponse
     {
-        $garage   = Garage::active()->findOrFail($id);
-        $services = $garage->services()->get();
+        if (!$this->garageExists($id)) {
+            return response()->json(['success' => false, 'message' => 'Garage introuvable.'], 404);
+        }
+
+        $services = DB::table('garage_services')->where('garage_id', $id)->get();
 
         return response()->json(['success' => true, 'data' => $services]);
     }
 
-    /**
-     * GET /garages/{id}/promotions
-     */
+    // ─────────────────────────────────────────────
+    // PROMOTIONS
+    // GET /garages/{id}/promotions
+    // ─────────────────────────────────────────────
     public function promotions(int $id): JsonResponse
     {
-        $garage     = Garage::active()->findOrFail($id);
-        $promotions = $garage->promotions()->active()->get();
+        if (!$this->garageExists($id)) {
+            return response()->json(['success' => false, 'message' => 'Garage introuvable.'], 404);
+        }
+
+        $today = now()->toDateString();
+
+        $promotions = DB::table('promotions')
+            ->where('promotable_type', 'App\Models\Garage')
+            ->where('promotable_id', $id)
+            ->where('is_active', true)
+            ->where('starts_at', '<=', $today)
+            ->where('ends_at', '>=', $today)
+            ->whereNull('deleted_at')
+            ->orderBy('starts_at')
+            ->get();
 
         return response()->json(['success' => true, 'data' => $promotions]);
     }
 
-    /**
-     * GET /garages/{id}/reviews
-     */
+    // ─────────────────────────────────────────────
+    // REVIEWS
+    // GET /garages/{id}/reviews
+    // ─────────────────────────────────────────────
     public function reviews(Request $request, int $id): JsonResponse
     {
-        $garage  = Garage::active()->findOrFail($id);
-        $reviews = $garage->reviews()
-            ->with('user:id,name,avatar_url')
-            ->orderByDesc('created_at')
-            ->paginate(10);
+        if (!$this->garageExists($id)) {
+            return response()->json(['success' => false, 'message' => 'Garage introuvable.'], 404);
+        }
 
-        return response()->json(['success' => true, 'data' => $reviews]);
+        $limit = $request->input('limit', 10);
+        $page  = max(1, (int) $request->input('page', 1));
+
+        $query = DB::table('reviews')
+            ->where('reviewable_type', 'garage')
+            ->where('reviewable_id', $id)
+            ->where('is_approved', true)
+            ->orderByDesc('created_at');
+
+        $total = $query->count();
+        $items = $query->offset(($page - 1) * $limit)->limit($limit)->get();
+
+        return response()->json([
+            'success' => true,
+            'data'    => $items,
+            'meta'    => ['total' => $total, 'page' => $page, 'limit' => $limit],
+        ]);
+    }
+
+    // ─────────────────────────────────────────────
+    // HELPERS
+    // ─────────────────────────────────────────────
+    private function garageExists(int $id): bool
+    {
+        return DB::table('garages')
+            ->where('id_garage', $id)
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->exists();
+    }
+
+    private function haversine(float $lat, float $lng, string $prefix = ''): string
+    {
+        $latCol = $prefix ? "{$prefix}.latitude"  : 'latitude';
+        $lngCol = $prefix ? "{$prefix}.longitude" : 'longitude';
+
+        return "(6371 * ACOS(LEAST(1,
+            COS(RADIANS($lat)) * COS(RADIANS($latCol)) *
+            COS(RADIANS($lngCol) - RADIANS($lng)) +
+            SIN(RADIANS($lat)) * SIN(RADIANS($latCol))
+        )))";
     }
 }
