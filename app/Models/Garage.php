@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Garage extends Model
@@ -64,5 +65,23 @@ class Garage extends Model
     public function views(): HasMany
     {
         return $this->hasMany(GarageView::class, 'garage_id', 'id_garage');
+    }
+
+    public function reviews(): MorphMany
+    {
+        return $this->morphMany(Review::class, 'reviewable');
+    }
+
+    // UserCarbur, Station, Garage
+    public function subscriptions(): MorphMany
+    {
+        return $this->morphMany(Subscription::class, 'subscribable');
+    }
+
+    public function activeSubscription(): MorphOne
+    {
+        return $this->morphOne(Subscription::class, 'subscribable')
+            ->where('status', 'active')
+            ->latest('starts_at');
     }
 }

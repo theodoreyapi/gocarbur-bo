@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Station extends Model
@@ -16,11 +17,26 @@ class Station extends Model
     protected $primaryKey = 'id_station';
 
     protected $fillable = [
-        'name', 'brand', 'address', 'city', 'country',
-        'latitude', 'longitude', 'phone', 'whatsapp',
-        'logo_url', 'photos', 'opens_at', 'closes_at',
-        'is_open_24h', 'is_verified', 'subscription_type',
-        'subscription_expires_at', 'views_count', 'is_active', 'description',
+        'name',
+        'brand',
+        'address',
+        'city',
+        'country',
+        'latitude',
+        'longitude',
+        'phone',
+        'whatsapp',
+        'logo_url',
+        'photos',
+        'opens_at',
+        'closes_at',
+        'is_open_24h',
+        'is_verified',
+        'subscription_type',
+        'subscription_expires_at',
+        'views_count',
+        'is_active',
+        'description',
     ];
 
     protected $casts = [
@@ -51,5 +67,23 @@ class Station extends Model
     public function views(): HasMany
     {
         return $this->hasMany(StationView::class, 'station_id', 'id_station');
+    }
+
+    public function reviews(): MorphMany
+    {
+        return $this->morphMany(Review::class, 'reviewable');
+    }
+
+    // UserCarbur, Station, Garage
+    public function subscriptions(): MorphMany
+    {
+        return $this->morphMany(Subscription::class, 'subscribable');
+    }
+
+    public function activeSubscription(): MorphOne
+    {
+        return $this->morphOne(Subscription::class, 'subscribable')
+            ->where('status', 'active')
+            ->latest('starts_at');
     }
 }

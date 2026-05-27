@@ -33,8 +33,14 @@ Route::delete('admin/users/{id}', [UsersController::class, 'destroy'])->name('us
 Route::get('admin/users/{id}', [UsersController::class, 'show'])->name('users.show');
 Route::post('admin/users', [UsersController::class, 'store'])->name('users.store');
 
-Route::resource('activity-logs', JournauxController::class);
-Route::resource('app-versions', VersionsController::class);
+Route::resource('activity-logs', JournauxController::class);Route::resource('activity-logs', JournauxController::class)->only(['index', 'show']);
+Route::get('/activity-logs/export', [JournauxController::class, 'export'])->name('activity-logs.export');
+
+Route::resource('app-versions', VersionsController::class)->only(['index', 'show', 'store']);
+// Config par plateforme (toggle force update, store URL)
+Route::patch('/app-versions/{platform}/config', [VersionsController::class, 'saveConfig'])
+    ->name('app-versions.config')
+    ->where('platform', 'android|ios');
 
 Route::resource('articles', ConseilsController::class);
 Route::post('admin/articles', [ConseilsController::class, 'store'])->name('articles.store');
@@ -73,7 +79,12 @@ Route::post('admin/partner-requests/{id}/reject', [DemandesController::class, 'r
 Route::delete('admin/partner-requests/{id}', [DemandesController::class, 'destroy'])->name('partner-requests.delete');
 
 
-Route::resource('payments', PaiementsController::class);
+Route::resource('payments', PaiementsController::class)->only(['index', 'show']);
+// Actions custom
+Route::post('/payments/{id}/refund', [PaiementsController::class, 'refund'])->name('payments.refund');
+Route::post('/payments/{id}/retry',  [PaiementsController::class, 'retry'])->name('payments.retry');
+Route::post('/payments/{id}/cancel', [PaiementsController::class, 'cancel'])->name('payments.cancel');
+Route::get('/payments/export',       [PaiementsController::class, 'export'])->name('payments.export');
 
 Route::resource('promotions', PromotionsController::class);
 Route::post('admin/promotions', [PromotionsController::class, 'store'])->name('promotions.store');
@@ -84,6 +95,18 @@ Route::post('admin/promotions/{id}/toggle', [PromotionsController::class, 'toggl
 Route::post('admin/promotions/{id}/send-push', [PromotionsController::class, 'sendPush'])->name('promotions.sendPush');
 Route::post('admin/promotions/{id}/duplicate', [PromotionsController::class, 'duplicate'])->name('promotions.duplicate');
 
-Route::resource('reviews', AvisController::class);
-Route::resource('settings', ParametresController::class);
+Route::get('/reviews', [AvisController::class, 'index'])->name('reviews.index');
+Route::post('/reviews/{id}/approve', [AvisController::class, 'approve'])->name('reviews.approve');
+Route::post('/reviews/approve-all', [AvisController::class, 'approveAll'])->name('reviews.approve-all');
+Route::delete('/reviews/{id}', [AvisController::class, 'destroy'])->name('reviews.destroy');
+
+Route::resource('settings', ParametresController::class)->only(['index']);
+// Sauvegarde par groupe (tarification, general, notifications, security, payments, integrations, quotas)
+Route::post('/settings/{group}', [ParametresController::class, 'saveGroup'])
+    ->name('settings.group')
+    ->where('group', '[a-z_]+');
+
 Route::resource('subscriptions', AbonnementsController::class);
+// Actions custom (hors CRUD standard)
+Route::post('/subscriptions/{id}/extend', [AbonnementsController::class, 'extend'])->name('subscriptions.extend');
+Route::post('/subscriptions/{id}/cancel', [AbonnementsController::class, 'cancel'])->name('subscriptions.cancel');

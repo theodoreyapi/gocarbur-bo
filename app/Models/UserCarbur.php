@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -44,4 +46,17 @@ class UserCarbur extends Authenticatable
         'subscription_expires_at' => 'datetime',
         'last_login_at'           => 'datetime',
     ];
+
+    // UserCarbur, Station, Garage
+    public function subscriptions(): MorphMany
+    {
+        return $this->morphMany(Subscription::class, 'subscribable');
+    }
+
+    public function activeSubscription(): MorphOne
+    {
+        return $this->morphOne(Subscription::class, 'subscribable')
+            ->where('status', 'active')
+            ->latest('starts_at');
+    }
 }

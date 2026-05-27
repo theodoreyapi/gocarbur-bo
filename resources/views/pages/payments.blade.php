@@ -1,24 +1,30 @@
 @extends('layouts.master', ['title' => 'Paiements Mobile Money', 'subTitle' => 'Paiements Mobile Money'])
 
+@push('css')
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+@endpush
+
 @push('scripts')
     <script>
-        // Charts
-        const days30 = Array.from({
-            length: 30
-        }, (_, i) => {
-            const d = new Date();
-            d.setDate(d.getDate() - (29 - i));
-            return d.getDate() + '/' + (d.getMonth() + 1);
-        });
+        /* ── Flash toasts ────────────────────────────── */
+        @if (session('toast_success'))
+            showToast(@json(session('toast_success')), 'success');
+        @endif
+        @if (session('toast_info'))
+            showToast(@json(session('toast_info')), 'info');
+        @endif
+        @if (session('toast_warning'))
+            showToast(@json(session('toast_warning')), 'warning');
+        @endif
+
+        /* ── Graphe volume 30 jours ─────────────────── */
         new Chart(document.getElementById('txChart'), {
             type: 'line',
             data: {
-                labels: days30,
+                labels: @json(array_column($chartDays, 'label')),
                 datasets: [{
                         label: 'Succès (FCFA)',
-                        data: Array.from({
-                            length: 30
-                        }, () => Math.floor(Math.random() * 200000) + 50000),
+                        data: @json(array_column($chartDays, 'success')),
                         borderColor: '#10B981',
                         backgroundColor: 'rgba(16,185,129,.08)',
                         fill: true,
@@ -28,9 +34,7 @@
                     },
                     {
                         label: 'Échoués (FCFA)',
-                        data: Array.from({
-                            length: 30
-                        }, () => Math.floor(Math.random() * 15000) + 2000),
+                        data: @json(array_column($chartDays, 'failed')),
                         borderColor: '#EF4444',
                         backgroundColor: 'rgba(239,68,68,.06)',
                         fill: true,
@@ -81,13 +85,18 @@
             }
         });
 
+        /* ── Graphe donut opérateurs ────────────────── */
+        const opData = @json($operatorStats->values()->map(fn($o) => $o->total));
+        const opLabels = @json($operatorStats->keys()->map(fn($k) => \App\Models\PaymentTransaction::methodLabels()[$k] ?? $k));
+        const opColors = @json($operatorStats->keys()->map(fn($k) => \App\Models\PaymentTransaction::methodColors()[$k] ?? '#6B7280'));
+
         new Chart(document.getElementById('operatorChart'), {
             type: 'doughnut',
             data: {
-                labels: ['Orange', 'Wave', 'MTN', 'Moov'],
+                labels: opLabels,
                 datasets: [{
-                    data: [44, 34, 16, 6],
-                    backgroundColor: ['#FF6600', '#1CB5E0', '#FFCC00', '#00A651'],
+                    data: opData,
+                    backgroundColor: opColors,
                     borderWidth: 0
                 }]
             },
@@ -103,51 +112,65 @@
             }
         });
 
+        /* ── Filtrage période ────────────────────────── */
         function filterByPeriod(v) {
-            showToast('Période : ' + v + ' jours', 'info');
+            const url = new URL(window.location.href);
+            url.searchParams.set('days', v);
+            window.location.href = url.toString();
         }
 
-        function exportCSV() {
-            showToast('Export CSV en cours...', 'info');
+        /* ── Modal détail ────────────────────────────── */
+        function viewTx(id) {
+            fetch(`/payments/${id}`)
+                .then(r => r.json())
+                .then(tx => {
+                    document.getElementById('modalTxRef').textContent = tx.reference;
+                    document.getElementById('modalTxStatus').innerHTML =
+                        `<span class="badge ${tx.status_badge}"><i class="fa-solid fa-circle" style="font-size:7px"></i> ${tx.status_label}</span>`;
+                    document.getElementById('modalTxAmount').textContent = tx.amount + ' FCFA';
+                    document.getElementById('modalTxOperator').innerHTML =
+                        `<span style="display:inline-flex;align-items:center;gap:6px"><span style="width:10px;height:10px;background:${tx.method_color};border-radius:50%;display:inline-block"></span>${tx.method_label}</span>`;
+                    document.getElementById('modalTxPhone').textContent = tx.phone_payer;
+                    document.getElementById('modalTxPlan').innerHTML =
+                        `<span class="badge ${tx.plan_badge}">${tx.plan_label}</span>`;
+                    document.getElementById('modalTxDate').textContent = tx.paid_at;
+                    document.getElementById('modalTxOpRef').textContent = tx.operator_reference;
+                    document.getElementById('modalTxOpId').textContent = tx.operator_transaction_id;
+                    document.getElementById('modalRefundId').value = id;
+                    document.getElementById('modalRefundAmount').value = tx.amount.replace(/\s/g, '');
+
+                    // Bouton rembourser visible que si succès
+                    const btnRefund = document.getElementById('btnRefundFromDetail');
+                    btnRefund.style.display = tx.status === 'success' ? '' : 'none';
+
+                    openModal('modalTxDetail');
+                });
         }
 
-        function viewTx(ref) {
-            document.getElementById('modalTxRef').textContent = ref;
-            openModal('modalTxDetail');
-        }
-
-        function refundTx(ref) {
+        function openRefundModal() {
             closeModal('modalTxDetail');
             openModal('modalRefund');
         }
 
-        function retryTx(ref) {
-            confirmAction('Relancer cette transaction ?', () => showToast('Transaction relancée', 'info'));
+        /* ── Retry / Cancel (forms cachés) ─────────────── */
+        function retryTx(id) {
+            confirmAction('Relancer cette transaction ?', () => {
+                document.getElementById(`retryForm_${id}`).submit();
+            });
         }
 
-        function cancelTx(ref) {
-            confirmAction('Annuler cette transaction ?', () => showToast('Transaction annulée', 'warning'));
-        }
-
-        function refundFromModal() {
-            closeModal('modalTxDetail');
-            openModal('modalRefund');
-        }
-
-        function confirmRefund() {
-            showToast('Remboursement initié avec succès', 'success');
-            closeModal('modalRefund');
+        function cancelTx(id) {
+            confirmAction('Annuler cette transaction ?', () => {
+                document.getElementById(`cancelForm_${id}`).submit();
+            });
         }
     </script>
-@endpush
-
-@push('csss')
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 @endpush
 
 @section('content')
     <main class="page-content">
 
+        {{-- ── Page header ─────────────────────────────── --}}
         <div class="page-header"
             style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
             <div>
@@ -155,56 +178,74 @@
                 <p>Journal de tous les paiements Mobile Money — Orange, MTN, Wave, Moov.</p>
             </div>
             <div style="display:flex;gap:10px">
-                <select class="form-select" style="width:160px" onchange="filterByPeriod(this.value)">
-                    <option value="7">7 derniers jours</option>
-                    <option value="30" selected>30 derniers jours</option>
-                    <option value="90">3 derniers mois</option>
-                    <option value="365">Cette année</option>
+                <select class="form-select" style="width:180px" onchange="filterByPeriod(this.value)">
+                    <option value="7" {{ $days == 7 ? 'selected' : '' }}>7 derniers jours</option>
+                    <option value="30" {{ $days == 30 ? 'selected' : '' }}>30 derniers jours</option>
+                    <option value="90" {{ $days == 90 ? 'selected' : '' }}>3 derniers mois</option>
+                    <option value="365" {{ $days == 365 ? 'selected' : '' }}>Cette année</option>
                 </select>
-                <button class="btn btn-secondary" onclick="exportCSV()"><i class="fa-solid fa-download"></i>
-                    Export CSV</button>
+                <a href="{{ route('payments.export', array_merge(request()->all(), ['days' => $days])) }}"
+                    class="btn btn-secondary">
+                    <i class="fa-solid fa-download"></i> Export CSV
+                </a>
             </div>
         </div>
 
-        <!-- KPIs -->
+        {{-- ── KPIs ─────────────────────────────────────── --}}
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-bottom:24px">
             <div class="stat-card">
-                <div class="stat-icon" style="background:#D1FAE5"><i class="fa-solid fa-circle-check"
-                        style="color:var(--success)"></i></div>
-                <div class="stat-value">4 230 000</div>
-                <div class="stat-label">FCFA encaissés (30j)</div>
-                <div class="stat-change up"><i class="fa-solid fa-arrow-up"></i> +18% vs mois dernier</div>
+                <div class="stat-icon" style="background:#D1FAE5">
+                    <i class="fa-solid fa-circle-check" style="color:var(--success)"></i>
+                </div>
+                <div class="stat-value">{{ number_format($stats['encaisse'], 0, ',', ' ') }}</div>
+                <div class="stat-label">FCFA encaissés ({{ $days }}j)</div>
+                <div class="stat-change {{ $stats['growth'] >= 0 ? 'up' : 'down' }}">
+                    <i class="fa-solid fa-arrow-{{ $stats['growth'] >= 0 ? 'up' : 'down' }}"></i>
+                    {{ $stats['growth'] >= 0 ? '+' : '' }}{{ $stats['growth'] }}% vs période préc.
+                </div>
             </div>
             <div class="stat-card">
-                <div class="stat-icon" style="background:#FEE2E2"><i class="fa-solid fa-circle-xmark"
-                        style="color:var(--danger)"></i></div>
-                <div class="stat-value">187 500</div>
-                <div class="stat-label">FCFA échoués (30j)</div>
-                <div class="stat-change down"><i class="fa-solid fa-exclamation"></i> 4.3% taux échec</div>
+                <div class="stat-icon" style="background:#FEE2E2">
+                    <i class="fa-solid fa-circle-xmark" style="color:var(--danger)"></i>
+                </div>
+                <div class="stat-value">{{ number_format($stats['failed'], 0, ',', ' ') }}</div>
+                <div class="stat-label">FCFA échoués ({{ $days }}j)</div>
+                <div class="stat-change down">
+                    <i class="fa-solid fa-exclamation"></i> {{ $stats['failRate'] }}% taux échec
+                </div>
             </div>
             <div class="stat-card">
-                <div class="stat-icon" style="background:#FEF3C7"><i class="fa-solid fa-clock"
-                        style="color:var(--warning)"></i></div>
-                <div class="stat-value">12</div>
+                <div class="stat-icon" style="background:#FEF3C7">
+                    <i class="fa-solid fa-clock" style="color:var(--warning)"></i>
+                </div>
+                <div class="stat-value">{{ $stats['pendingCount'] }}</div>
                 <div class="stat-label">Transactions en attente</div>
-                <div class="stat-change down"><i class="fa-solid fa-triangle-exclamation"></i> À traiter</div>
+                <div class="stat-change down">
+                    <i class="fa-solid fa-triangle-exclamation"></i> À traiter
+                </div>
             </div>
             <div class="stat-card">
-                <div class="stat-icon" style="background:#DBEAFE"><i class="fa-solid fa-chart-pie"
-                        style="color:var(--info)"></i></div>
-                <div class="stat-value">95.7%</div>
+                <div class="stat-icon" style="background:#DBEAFE">
+                    <i class="fa-solid fa-chart-pie" style="color:var(--info)"></i>
+                </div>
+                <div class="stat-value">{{ $stats['successRate'] }}%</div>
                 <div class="stat-label">Taux de succès global</div>
-                <div class="stat-change up"><i class="fa-solid fa-arrow-up"></i> Excellent</div>
+                <div class="stat-change up">
+                    <i class="fa-solid fa-arrow-up"></i>
+                    {{ $stats['successRate'] >= 90 ? 'Excellent' : 'À surveiller' }}
+                </div>
             </div>
         </div>
 
-        <!-- Graphe + répartition par opérateur -->
+        {{-- ── Graphe + donut opérateurs ───────────────── --}}
         <div style="display:grid;grid-template-columns:2fr 1fr;gap:20px;margin-bottom:24px">
 
             <div class="card">
                 <div class="card-header">
-                    <div class="card-title"><i class="fa-solid fa-chart-bar" style="color:var(--primary)"></i>
-                        Volume de transactions (30 jours)</div>
+                    <div class="card-title">
+                        <i class="fa-solid fa-chart-bar" style="color:var(--primary)"></i>
+                        Volume de transactions ({{ $days }} jours)
+                    </div>
                 </div>
                 <div class="card-body">
                     <div class="chart-container"><canvas id="txChart"></canvas></div>
@@ -213,94 +254,91 @@
 
             <div class="card">
                 <div class="card-header">
-                    <div class="card-title"><i class="fa-solid fa-mobile-screen-button" style="color:var(--info)"></i>
-                        Répartition par opérateur</div>
+                    <div class="card-title">
+                        <i class="fa-solid fa-mobile-screen-button" style="color:var(--info)"></i>
+                        Répartition par opérateur
+                    </div>
                 </div>
                 <div class="card-body">
-                    <div style="margin-bottom:16px"><canvas id="operatorChart" style="max-height:180px"></canvas>
-                    </div>
-                    <div style="display:flex;flex-direction:column;gap:10px">
-                        <div style="display:flex;align-items:center;justify-content:space-between">
-                            <span style="display:flex;align-items:center;gap:7px;font-size:13px">
-                                <span
-                                    style="width:10px;height:10px;background:#FF6600;border-radius:50%;display:inline-block"></span>Orange
-                                Money
-                            </span>
-                            <div style="text-align:right">
-                                <div class="fw-700" style="font-size:13px">1 872 000 F</div>
-                                <div style="font-size:11px;color:var(--text-muted)">44%</div>
-                            </div>
+                    @if ($operatorStats->isEmpty())
+                        <p style="text-align:center;color:var(--text-muted);padding:20px 0">Aucune donnée</p>
+                    @else
+                        <div style="margin-bottom:16px"><canvas id="operatorChart" style="max-height:180px"></canvas></div>
+                        <div style="display:flex;flex-direction:column;gap:10px">
+                            @foreach ($operatorStats as $method => $op)
+                                @php
+                                    $color = \App\Models\PaymentTransaction::methodColors()[$method] ?? '#6B7280';
+                                    $label = \App\Models\PaymentTransaction::methodLabels()[$method] ?? $method;
+                                    $pct = $totalOp > 0 ? round(($op->total / $totalOp) * 100) : 0;
+                                @endphp
+                                <div style="display:flex;align-items:center;justify-content:space-between">
+                                    <span style="display:flex;align-items:center;gap:7px;font-size:13px">
+                                        <span
+                                            style="width:10px;height:10px;background:{{ $color }};border-radius:50%;display:inline-block"></span>
+                                        {{ $label }}
+                                    </span>
+                                    <div style="text-align:right">
+                                        <div class="fw-700" style="font-size:13px">
+                                            {{ number_format($op->total, 0, ',', ' ') }} F</div>
+                                        <div style="font-size:11px;color:var(--text-muted)">{{ $pct }}%</div>
+                                    </div>
+                                </div>
+                            @endforeach
                         </div>
-                        <div style="display:flex;align-items:center;justify-content:space-between">
-                            <span style="display:flex;align-items:center;gap:7px;font-size:13px">
-                                <span
-                                    style="width:10px;height:10px;background:#1CB5E0;border-radius:50%;display:inline-block"></span>Wave
-                            </span>
-                            <div style="text-align:right">
-                                <div class="fw-700" style="font-size:13px">1 439 000 F</div>
-                                <div style="font-size:11px;color:var(--text-muted)">34%</div>
-                            </div>
-                        </div>
-                        <div style="display:flex;align-items:center;justify-content:space-between">
-                            <span style="display:flex;align-items:center;gap:7px;font-size:13px">
-                                <span
-                                    style="width:10px;height:10px;background:#FFCC00;border-radius:50%;display:inline-block"></span>MTN
-                                MoMo
-                            </span>
-                            <div style="text-align:right">
-                                <div class="fw-700" style="font-size:13px">676 000 F</div>
-                                <div style="font-size:11px;color:var(--text-muted)">16%</div>
-                            </div>
-                        </div>
-                        <div style="display:flex;align-items:center;justify-content:space-between">
-                            <span style="display:flex;align-items:center;gap:7px;font-size:13px">
-                                <span
-                                    style="width:10px;height:10px;background:#00A651;border-radius:50%;display:inline-block"></span>Moov
-                                Money
-                            </span>
-                            <div style="text-align:right">
-                                <div class="fw-700" style="font-size:13px">243 000 F</div>
-                                <div style="font-size:11px;color:var(--text-muted)">6%</div>
-                            </div>
-                        </div>
-                    </div>
+                    @endif
                 </div>
             </div>
         </div>
 
-        <!-- Table transactions -->
+        {{-- ── Table transactions ──────────────────────── --}}
         <div class="card">
-            <div class="filter-bar">
+
+            {{-- Filtres --}}
+            <form method="GET" action="{{ route('payments.index') }}" class="filter-bar">
+                <input type="hidden" name="days" value="{{ $days }}">
+
                 <div style="position:relative;flex:1;min-width:220px">
                     <i class="fa-solid fa-magnifying-glass"
                         style="position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--text-muted)"></i>
-                    <input type="text" placeholder="Référence, numéro de téléphone..."
+                    <input type="text" name="search" placeholder="Référence, téléphone..."
+                        value="{{ request('search') }}"
                         style="padding:8px 12px 8px 34px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:13px;width:100%;outline:none;background:var(--bg)">
                 </div>
-                <select class="form-select" style="width:140px">
-                    <option value="">Tous statuts</option>
-                    <option>Succès</option>
-                    <option>Échoué</option>
-                    <option>En attente</option>
-                    <option>Remboursé</option>
+
+                <select name="status" class="form-select" style="width:140px" onchange="this.form.submit()">
+                    <option value="all" {{ request('status', 'all') === 'all' ? 'selected' : '' }}>Tous statuts</option>
+                    <option value="success" {{ request('status') === 'success' ? 'selected' : '' }}>Succès</option>
+                    <option value="failed" {{ request('status') === 'failed' ? 'selected' : '' }}>Échoué</option>
+                    <option value="pending" {{ request('status') === 'pending' ? 'selected' : '' }}>En attente</option>
+                    <option value="refunded" {{ request('status') === 'refunded' ? 'selected' : '' }}>Remboursé</option>
+                    <option value="cancelled" {{ request('status') === 'cancelled' ? 'selected' : '' }}>Annulé</option>
                 </select>
-                <select class="form-select" style="width:150px">
-                    <option value="">Tous opérateurs</option>
-                    <option>Orange Money</option>
-                    <option>Wave</option>
-                    <option>MTN MoMo</option>
-                    <option>Moov Money</option>
+
+                <select name="operator" class="form-select" style="width:160px" onchange="this.form.submit()">
+                    <option value="all" {{ request('operator', 'all') === 'all' ? 'selected' : '' }}>Tous opérateurs
+                    </option>
+                    @foreach (\App\Models\PaymentTransaction::methodLabels() as $val => $label)
+                        <option value="{{ $val }}" {{ request('operator') === $val ? 'selected' : '' }}>
+                            {{ $label }}</option>
+                    @endforeach
                 </select>
-                <select class="form-select" style="width:160px">
-                    <option value="">Tous les plans</option>
-                    <option>User Premium</option>
-                    <option>Station Pro</option>
-                    <option>Station Premium</option>
-                    <option>Garage Pro</option>
-                    <option>Garage Premium</option>
+
+                <select name="plan" class="form-select" style="width:160px" onchange="this.form.submit()">
+                    <option value="all" {{ request('plan', 'all') === 'all' ? 'selected' : '' }}>Tous les plans
+                    </option>
+                    @foreach (\App\Models\Subscription::planLabels() as $val => $label)
+                        <option value="{{ $val }}" {{ request('plan') === $val ? 'selected' : '' }}>
+                            {{ $label }}</option>
+                    @endforeach
                 </select>
-                <input type="date" class="form-control" style="width:150px">
-            </div>
+
+                <input type="date" name="date" class="form-control" style="width:155px"
+                    value="{{ request('date') }}" onchange="this.form.submit()">
+
+                <button type="submit" class="btn btn-secondary btn-sm">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                </button>
+            </form>
 
             <div class="table-wrapper">
                 <table class="table">
@@ -317,261 +355,149 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <tr>
-                            <td><code
-                                    style="font-size:11px;background:var(--bg);padding:3px 7px;border-radius:5px;letter-spacing:.03em">SUB-KA8X2P1Q</code>
-                            </td>
-                            <td>
-                                <div style="display:flex;align-items:center;gap:9px">
-                                    <div class="user-avatar">KA</div>
-                                    <div>
-                                        <div class="fw-600" style="font-size:13px">Kouassi Aya</div>
-                                        <div style="font-size:11px;color:var(--text-muted)">+225 07 12 34 56</div>
+                        @forelse($transactions as $tx)
+                            @php
+                                $avatarColors = [
+                                    '#3B82F6,#1D4ED8',
+                                    '#EF4444,#B91C1C',
+                                    '#10B981,#059669',
+                                    '#F59E0B,#D97706',
+                                    '#8B5CF6,#6D28D9',
+                                    '#EC4899,#BE185D',
+                                ];
+                                $color = $avatarColors[$tx->id_pay_transac % count($avatarColors)];
+                            @endphp
+                            <tr>
+                                {{-- Référence --}}
+                                <td>
+                                    <code
+                                        style="font-size:11px;background:var(--bg);padding:3px 7px;border-radius:5px;letter-spacing:.03em">
+                                        {{ $tx->reference }}
+                                    </code>
+                                </td>
+
+                                {{-- Payeur --}}
+                                <td>
+                                    <div style="display:flex;align-items:center;gap:9px">
+                                        <div
+                                            style="width:34px;height:34px;background:linear-gradient(135deg,{{ $color }});border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;flex-shrink:0">
+                                            {{ $tx->payer_initials }}
+                                        </div>
+                                        <div>
+                                            <div class="fw-600" style="font-size:13px">{{ $tx->payer_name }}</div>
+                                            <div style="font-size:11px;color:var(--text-muted)">
+                                                {{ $tx->phone_payer ?? '—' }}</div>
+                                        </div>
                                     </div>
-                                </div>
-                            </td>
-                            <td>
-                                <span
-                                    style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600">
+                                </td>
+
+                                {{-- Opérateur --}}
+                                <td>
                                     <span
-                                        style="width:9px;height:9px;background:#FF6600;border-radius:50%;display:inline-block"></span>Orange
-                                    Money
-                                </span>
-                            </td>
-                            <td><span class="fw-700" style="color:var(--success);font-size:14px">1 500 FCFA</span>
-                            </td>
-                            <td><span class="badge badge-success"><i class="fa-solid fa-user" style="font-size:9px"></i>
-                                    User Premium</span></td>
-                            <td><span class="badge badge-success"><i class="fa-solid fa-circle"
-                                        style="font-size:7px"></i> Succès</span></td>
-                            <td>
-                                <div style="font-size:13px">18 Mar 2024</div>
-                                <div style="font-size:11px;color:var(--text-muted)">14:32:08</div>
-                            </td>
-                            <td>
-                                <div class="dropdown">
-                                    <button class="btn btn-sm btn-secondary" data-toggle="dropdown"><i
-                                            class="fa-solid fa-ellipsis"></i></button>
-                                    <div class="dropdown-menu">
-                                        <a class="dropdown-item" href="#" onclick="viewTx('SUB-KA8X2P1Q')"><i
-                                                class="fa-solid fa-eye"></i> Voir
-                                            détail</a>
-                                        <a class="dropdown-item text-danger" href="#"
-                                            onclick="refundTx('SUB-KA8X2P1Q')"><i class="fa-solid fa-rotate-left"></i>
-                                            Rembourser</a>
+                                        style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600">
+                                        <span
+                                            style="width:9px;height:9px;background:{{ $tx->method_color }};border-radius:50%;display:inline-block"></span>
+                                        {{ $tx->method_label }}
+                                    </span>
+                                </td>
+
+                                {{-- Montant --}}
+                                <td>
+                                    <span class="fw-700" style="color:{{ $tx->amount_color }};font-size:14px">
+                                        {{ number_format($tx->amount, 0, ',', ' ') }} FCFA
+                                    </span>
+                                </td>
+
+                                {{-- Plan --}}
+                                <td>
+                                    @if ($tx->plan_label)
+                                        <span class="badge {{ $tx->plan_badge }}">{{ $tx->plan_label }}</span>
+                                    @else
+                                        <span style="color:var(--text-muted);font-size:12px">—</span>
+                                    @endif
+                                </td>
+
+                                {{-- Statut --}}
+                                <td>
+                                    <span class="badge {{ $tx->status_badge }}">
+                                        <i class="fa-solid fa-circle" style="font-size:7px"></i>
+                                        {{ $tx->status_label }}
+                                    </span>
+                                </td>
+
+                                {{-- Date --}}
+                                <td>
+                                    <div style="font-size:13px">{{ $tx->created_at->format('d M Y') }}</div>
+                                    <div style="font-size:11px;color:var(--text-muted)">
+                                        {{ $tx->created_at->format('H:i:s') }}</div>
+                                </td>
+
+                                {{-- Actions --}}
+                                <td>
+                                    <div class="dropdown">
+                                        <button class="btn btn-sm btn-secondary" data-toggle="dropdown">
+                                            <i class="fa-solid fa-ellipsis"></i>
+                                        </button>
+                                        <div class="dropdown-menu">
+                                            <a class="dropdown-item" href="#"
+                                                onclick="viewTx({{ $tx->id_pay_transac }})">
+                                                <i class="fa-solid fa-eye"></i> Voir détail
+                                            </a>
+                                            @if ($tx->status === 'success')
+                                                <a class="dropdown-item text-danger" href="#"
+                                                    onclick="viewTx({{ $tx->id_pay_transac }})">
+                                                    <i class="fa-solid fa-rotate-left"></i> Rembourser
+                                                </a>
+                                            @endif
+                                            @if (in_array($tx->status, ['failed', 'pending']))
+                                                <a class="dropdown-item" href="#"
+                                                    onclick="retryTx({{ $tx->id_pay_transac }})">
+                                                    <i class="fa-solid fa-rotate-right"></i> Relancer
+                                                </a>
+                                            @endif
+                                            @if ($tx->status === 'pending')
+                                                <a class="dropdown-item text-danger" href="#"
+                                                    onclick="cancelTx({{ $tx->id_pay_transac }})">
+                                                    <i class="fa-solid fa-ban"></i> Annuler
+                                                </a>
+                                            @endif
+                                        </div>
                                     </div>
-                                </div>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td><code
-                                    style="font-size:11px;background:var(--bg);padding:3px 7px;border-radius:5px;letter-spacing:.03em">SUB-TE9P2X4R</code>
-                            </td>
-                            <td>
-                                <div style="display:flex;align-items:center;gap:9px">
-                                    <div class="user-avatar" style="background:linear-gradient(135deg,#3B82F6,#1D4ED8)">TE
-                                    </div>
-                                    <div>
-                                        <div class="fw-600" style="font-size:13px">Total Énergies Cocody</div>
-                                        <div style="font-size:11px;color:var(--text-muted)">+225 22 44 55 66</div>
-                                    </div>
-                                </div>
-                            </td>
-                            <td>
-                                <span
-                                    style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600">
-                                    <span
-                                        style="width:9px;height:9px;background:#1CB5E0;border-radius:50%;display:inline-block"></span>Wave
-                                </span>
-                            </td>
-                            <td><span class="fw-700" style="color:var(--success);font-size:14px">32 500
-                                    FCFA</span></td>
-                            <td><span class="badge badge-purple"><i class="fa-solid fa-gas-pump"
-                                        style="font-size:9px"></i> Station Premium</span></td>
-                            <td><span class="badge badge-success"><i class="fa-solid fa-circle"
-                                        style="font-size:7px"></i> Succès</span></td>
-                            <td>
-                                <div style="font-size:13px">01 Mar 2024</div>
-                                <div style="font-size:11px;color:var(--text-muted)">09:15:41</div>
-                            </td>
-                            <td>
-                                <div class="dropdown">
-                                    <button class="btn btn-sm btn-secondary" data-toggle="dropdown"><i
-                                            class="fa-solid fa-ellipsis"></i></button>
-                                    <div class="dropdown-menu">
-                                        <a class="dropdown-item" href="#" onclick="viewTx('SUB-TE9P2X4R')"><i
-                                                class="fa-solid fa-eye"></i> Voir
-                                            détail</a>
-                                        <a class="dropdown-item text-danger" href="#"
-                                            onclick="refundTx('SUB-TE9P2X4R')"><i class="fa-solid fa-rotate-left"></i>
-                                            Rembourser</a>
-                                    </div>
-                                </div>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td><code
-                                    style="font-size:11px;background:var(--bg);padding:3px 7px;border-radius:5px;letter-spacing:.03em">SUB-BK3M7N2S</code>
-                            </td>
-                            <td>
-                                <div style="display:flex;align-items:center;gap:9px">
-                                    <div class="user-avatar" style="background:linear-gradient(135deg,#EF4444,#B91C1C)">BK
-                                    </div>
-                                    <div>
-                                        <div class="fw-600" style="font-size:13px">Bamba Koné</div>
-                                        <div style="font-size:11px;color:var(--text-muted)">+225 05 98 76 54</div>
-                                    </div>
-                                </div>
-                            </td>
-                            <td>
-                                <span
-                                    style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600">
-                                    <span
-                                        style="width:9px;height:9px;background:#FFCC00;border-radius:50%;display:inline-block"></span>MTN
-                                    MoMo
-                                </span>
-                            </td>
-                            <td><span class="fw-700" style="color:var(--danger);font-size:14px">1 500 FCFA</span>
-                            </td>
-                            <td><span class="badge badge-success"><i class="fa-solid fa-user" style="font-size:9px"></i>
-                                    User Premium</span></td>
-                            <td><span class="badge badge-danger"><i class="fa-solid fa-circle" style="font-size:7px"></i>
-                                    Échoué</span></td>
-                            <td>
-                                <div style="font-size:13px">17 Mar 2024</div>
-                                <div style="font-size:11px;color:var(--text-muted)">11:45:22</div>
-                            </td>
-                            <td>
-                                <div class="dropdown">
-                                    <button class="btn btn-sm btn-secondary" data-toggle="dropdown"><i
-                                            class="fa-solid fa-ellipsis"></i></button>
-                                    <div class="dropdown-menu">
-                                        <a class="dropdown-item" href="#" onclick="viewTx('SUB-BK3M7N2S')"><i
-                                                class="fa-solid fa-eye"></i> Voir
-                                            détail</a>
-                                        <a class="dropdown-item" href="#" onclick="retryTx('SUB-BK3M7N2S')"><i
-                                                class="fa-solid fa-rotate-right"></i> Relancer</a>
-                                    </div>
-                                </div>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td><code
-                                    style="font-size:11px;background:var(--bg);padding:3px 7px;border-radius:5px;letter-spacing:.03em">SUB-GA5R1Q9W</code>
-                            </td>
-                            <td>
-                                <div style="display:flex;align-items:center;gap:9px">
-                                    <div class="user-avatar" style="background:linear-gradient(135deg,#10B981,#059669)">GA
-                                    </div>
-                                    <div>
-                                        <div class="fw-600" style="font-size:13px">Garage Auto Plus</div>
-                                        <div style="font-size:11px;color:var(--text-muted)">+225 27 33 44 55</div>
-                                    </div>
-                                </div>
-                            </td>
-                            <td>
-                                <span
-                                    style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600">
-                                    <span
-                                        style="width:9px;height:9px;background:#FFCC00;border-radius:50%;display:inline-block"></span>MTN
-                                    MoMo
-                                </span>
-                            </td>
-                            <td><span class="fw-700" style="color:var(--success);font-size:14px">12 500
-                                    FCFA</span></td>
-                            <td><span class="badge badge-info"><i class="fa-solid fa-wrench" style="font-size:9px"></i>
-                                    Garage Pro</span></td>
-                            <td><span class="badge badge-success"><i class="fa-solid fa-circle"
-                                        style="font-size:7px"></i> Succès</span></td>
-                            <td>
-                                <div style="font-size:13px">05 Mar 2024</div>
-                                <div style="font-size:11px;color:var(--text-muted)">16:02:55</div>
-                            </td>
-                            <td>
-                                <div class="dropdown">
-                                    <button class="btn btn-sm btn-secondary" data-toggle="dropdown"><i
-                                            class="fa-solid fa-ellipsis"></i></button>
-                                    <div class="dropdown-menu">
-                                        <a class="dropdown-item" href="#" onclick="viewTx('SUB-GA5R1Q9W')"><i
-                                                class="fa-solid fa-eye"></i> Voir
-                                            détail</a>
-                                        <a class="dropdown-item text-danger" href="#"
-                                            onclick="refundTx('SUB-GA5R1Q9W')"><i class="fa-solid fa-rotate-left"></i>
-                                            Rembourser</a>
-                                    </div>
-                                </div>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td><code
-                                    style="font-size:11px;background:var(--bg);padding:3px 7px;border-radius:5px;letter-spacing:.03em">SUB-NA2K8J7X</code>
-                            </td>
-                            <td>
-                                <div style="display:flex;align-items:center;gap:9px">
-                                    <div class="user-avatar" style="background:linear-gradient(135deg,#8B5CF6,#6D28D9)">NA
-                                    </div>
-                                    <div>
-                                        <div class="fw-600" style="font-size:13px">N'Guessan Ahou</div>
-                                        <div style="font-size:11px;color:var(--text-muted)">+225 01 23 45 67</div>
-                                    </div>
-                                </div>
-                            </td>
-                            <td>
-                                <span
-                                    style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600">
-                                    <span
-                                        style="width:9px;height:9px;background:#00A651;border-radius:50%;display:inline-block"></span>Moov
-                                    Money
-                                </span>
-                            </td>
-                            <td><span class="fw-700" style="color:var(--text-muted);font-size:14px">1 500
-                                    FCFA</span></td>
-                            <td><span class="badge badge-success"><i class="fa-solid fa-user" style="font-size:9px"></i>
-                                    User Premium</span></td>
-                            <td><span class="badge badge-warning"><i class="fa-solid fa-circle"
-                                        style="font-size:7px"></i> En attente</span></td>
-                            <td>
-                                <div style="font-size:13px">18 Mar 2024</div>
-                                <div style="font-size:11px;color:var(--text-muted)">14:55:01</div>
-                            </td>
-                            <td>
-                                <div class="dropdown">
-                                    <button class="btn btn-sm btn-secondary" data-toggle="dropdown"><i
-                                            class="fa-solid fa-ellipsis"></i></button>
-                                    <div class="dropdown-menu">
-                                        <a class="dropdown-item" href="#" onclick="viewTx('SUB-NA2K8J7X')"><i
-                                                class="fa-solid fa-eye"></i> Voir
-                                            détail</a>
-                                        <a class="dropdown-item" href="#" onclick="retryTx('SUB-NA2K8J7X')"><i
-                                                class="fa-solid fa-rotate-right"></i> Relancer</a>
-                                        <a class="dropdown-item text-danger" href="#"
-                                            onclick="cancelTx('SUB-NA2K8J7X')"><i class="fa-solid fa-ban"></i>
-                                            Annuler</a>
-                                    </div>
-                                </div>
-                            </td>
-                        </tr>
+
+                                    {{-- Formulaires cachés --}}
+                                    <form id="retryForm_{{ $tx->id_pay_transac }}" method="POST"
+                                        action="{{ route('payments.retry', $tx->id_pay_transac) }}" style="display:none">
+                                        @csrf</form>
+                                    <form id="cancelForm_{{ $tx->id_pay_transac }}" method="POST"
+                                        action="{{ route('payments.cancel', $tx->id_pay_transac) }}"
+                                        style="display:none">@csrf</form>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="8" style="text-align:center;color:var(--text-muted);padding:32px">
+                                    Aucune transaction trouvée.
+                                </td>
+                            </tr>
+                        @endforelse
                     </tbody>
                 </table>
             </div>
 
+            {{-- Pagination --}}
             <div
                 style="padding:16px 20px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border);flex-wrap:wrap;gap:10px">
-                <span style="font-size:13px;color:var(--text-muted)">Affichage 1–20 sur 847 transactions</span>
-                <div class="pagination">
-                    <div class="page-item disabled"><i class="fa-solid fa-chevron-left" style="font-size:11px"></i></div>
-                    <div class="page-item active">1</div>
-                    <div class="page-item">2</div>
-                    <div class="page-item">3</div>
-                    <div class="page-item">...</div>
-                    <div class="page-item">43</div>
-                    <div class="page-item"><i class="fa-solid fa-chevron-right" style="font-size:11px"></i></div>
-                </div>
+                <span style="font-size:13px;color:var(--text-muted)">
+                    {{ $transactions->firstItem() }}–{{ $transactions->lastItem() }} sur {{ $transactions->total() }}
+                    transactions
+                </span>
+                {{ $transactions->appends(request()->all())->links('vendor.pagination.simple') }}
             </div>
         </div>
+
     </main>
 
-    <!-- Modal Détail transaction -->
+    {{-- ── Modal Détail transaction ─────────────────── --}}
     <div class="modal-overlay" id="modalTxDetail">
         <div class="modal-box" style="max-width:480px">
             <div class="modal-header">
@@ -580,82 +506,88 @@
             </div>
             <div class="modal-body">
                 <div style="background:var(--bg);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px">
-                    <div style="display:flex;justify-content:space-between;margin-bottom:10px">
-                        <span style="font-size:13px;color:var(--text-muted)">Référence</span>
-                        <code style="font-size:12px;font-weight:700" id="modalTxRef">SUB-KA8X2P1Q</code>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;margin-bottom:10px">
-                        <span style="font-size:13px;color:var(--text-muted)">Statut</span>
-                        <span class="badge badge-success"><i class="fa-solid fa-circle" style="font-size:7px"></i>
-                            Succès</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;margin-bottom:10px">
-                        <span style="font-size:13px;color:var(--text-muted)">Montant</span>
-                        <span class="fw-700" style="color:var(--success);font-size:15px">1 500 FCFA</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;margin-bottom:10px">
-                        <span style="font-size:13px;color:var(--text-muted)">Opérateur</span>
-                        <span class="fw-600" style="font-size:13px">🟠 Orange Money</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;margin-bottom:10px">
-                        <span style="font-size:13px;color:var(--text-muted)">Numéro payeur</span>
-                        <span class="fw-600" style="font-size:13px">+225 07 12 34 56</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;margin-bottom:10px">
-                        <span style="font-size:13px;color:var(--text-muted)">Plan</span>
-                        <span class="badge badge-success">User Premium</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;margin-bottom:10px">
-                        <span style="font-size:13px;color:var(--text-muted)">Date</span>
-                        <span style="font-size:13px;font-weight:600">18 Mar 2024 — 14:32:08</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between">
-                        <span style="font-size:13px;color:var(--text-muted)">ID opérateur</span>
-                        <code style="font-size:11px">CI241803142247890</code>
-                    </div>
+                    @foreach ([['Référence', 'modalTxRef', 'code'], ['Statut', 'modalTxStatus', 'html'], ['Montant', 'modalTxAmount', 'strong'], ['Opérateur', 'modalTxOperator', 'html'], ['Numéro payeur', 'modalTxPhone', 'text'], ['Plan', 'modalTxPlan', 'html'], ['Date', 'modalTxDate', 'text'], ['Réf. opérateur', 'modalTxOpRef', 'code'], ['ID opérateur', 'modalTxOpId', 'code']] as [$label, $id, $type])
+                        <div style="display:flex;justify-content:space-between;margin-bottom:10px;align-items:center">
+                            <span style="font-size:13px;color:var(--text-muted)">{{ $label }}</span>
+                            @if ($type === 'code')
+                                <code style="font-size:11px;font-weight:700" id="{{ $id }}">—</code>
+                            @elseif($type === 'strong')
+                                <strong id="{{ $id }}" style="color:var(--success);font-size:15px">—</strong>
+                            @else
+                                <span id="{{ $id }}" style="font-size:13px;font-weight:600">—</span>
+                            @endif
+                        </div>
+                    @endforeach
                 </div>
-                <button class="btn btn-danger" style="width:100%" onclick="refundFromModal()">
+
+                <button id="btnRefundFromDetail" class="btn btn-danger" style="width:100%" onclick="openRefundModal()">
                     <i class="fa-solid fa-rotate-left"></i> Initier un remboursement
                 </button>
             </div>
         </div>
     </div>
 
-    <!-- Modal Remboursement -->
+    {{-- ── Modal Remboursement ──────────────────────── --}}
     <div class="modal-overlay" id="modalRefund">
         <div class="modal-box" style="max-width:420px">
             <div class="modal-header">
                 <h5><i class="fa-solid fa-rotate-left" style="color:var(--danger)"></i> Remboursement</h5>
                 <button class="modal-close" data-modal-close="modalRefund">✕</button>
             </div>
-            <div class="modal-body">
-                <div class="alert alert-warning" style="margin-bottom:16px">
-                    <i class="fa-solid fa-triangle-exclamation"></i>
-                    <span>Le remboursement sera effectué sur le numéro Mobile Money d'origine. Cette action est
-                        irréversible.</span>
+            <form id="refundForm" method="POST" action="">
+                @csrf
+                <div class="modal-body">
+                    <div class="alert alert-warning" style="margin-bottom:16px">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        <span>Le remboursement sera effectué sur le numéro Mobile Money d'origine. Cette action est
+                            irréversible.</span>
+                    </div>
+                    <input type="hidden" id="modalRefundId" name="_tx_id">
+                    <div style="margin-bottom:14px">
+                        <label class="form-label">Montant à rembourser (FCFA)</label>
+                        <input type="number" name="amount" id="modalRefundAmount" class="form-control"
+                            min="1">
+                    </div>
+                    <div>
+                        <label class="form-label">Raison du remboursement *</label>
+                        <select name="reason" class="form-select">
+                            <option>Erreur de paiement</option>
+                            <option>Abonnement annulé par admin</option>
+                            <option>Demande du client</option>
+                            <option>Doublon de transaction</option>
+                            <option>Autre</option>
+                        </select>
+                    </div>
                 </div>
-                <div style="margin-bottom:14px">
-                    <label class="form-label">Montant à rembourser (FCFA)</label>
-                    <input type="number" class="form-control" value="1500">
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-modal-close="modalRefund">Annuler</button>
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fa-solid fa-check"></i> Confirmer le remboursement
+                    </button>
                 </div>
-                <div>
-                    <label class="form-label">Raison du remboursement *</label>
-                    <select class="form-select" style="margin-bottom:10px">
-                        <option>Erreur de paiement</option>
-                        <option>Abonnement annulé par admin</option>
-                        <option>Demande du client</option>
-                        <option>Doublon de transaction</option>
-                        <option>Autre</option>
-                    </select>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" data-modal-close="modalRefund">Annuler</button>
-                <button class="btn btn-danger" onclick="confirmRefund()"><i class="fa-solid fa-check"></i> Confirmer
-                    le remboursement</button>
-            </div>
+            </form>
         </div>
     </div>
+
+    <script>
+        // Met à jour l'action du formulaire de remboursement dynamiquement
+        document.getElementById('modalRefundId').addEventListener('change', function() {
+            document.getElementById('refundForm').action = `/payments/${this.value}/refund`;
+        });
+        // Observateur MutationObserver pour détecter le changement de valeur via JS
+        const refundIdInput = document.getElementById('modalRefundId');
+        const observer = new MutationObserver(() => {
+            document.getElementById('refundForm').action = `/payments/${refundIdInput.value}/refund`;
+        });
+        // Patch: set action when openRefundModal is called
+        const _origOpenRefund = window.openRefundModal;
+        window.openRefundModal = function() {
+            const id = document.getElementById('modalRefundId').value;
+            document.getElementById('refundForm').action = `/payments/${id}/refund`;
+            closeModal('modalTxDetail');
+            openModal('modalRefund');
+        };
+    </script>
 
     <div class="toast-container"></div>
 @endsection
