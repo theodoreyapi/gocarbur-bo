@@ -1,14 +1,5 @@
 <?php
 
-use App\Http\Controllers\Api\Admin\AdminArticleController;
-use App\Http\Controllers\Api\Admin\AdminDashboardController;
-use App\Http\Controllers\Api\Admin\AdminGarageController;
-use App\Http\Controllers\Api\Admin\AdminNotificationController;
-use App\Http\Controllers\Api\Admin\AdminPartnerRequestController;
-use App\Http\Controllers\Api\Admin\AdminReviewController;
-use App\Http\Controllers\Api\Admin\AdminStationController;
-use App\Http\Controllers\Api\Admin\AdminSubscriptionController;
-use App\Http\Controllers\Api\Admin\AdminUserController;
 use Illuminate\Support\Facades\Route;
 
 // Controllers Auth
@@ -43,10 +34,6 @@ use App\Http\Controllers\Api\Pro\ProStatsController;
 use App\Http\Controllers\Api\Pro\ProSubscriptionController;
 use App\Http\Controllers\Api\Pub\BannerController;
 use App\Http\Controllers\Api\Pub\PromotionController;
-use App\Http\Controllers\Api\Webhook\CinetPayController;
-use App\Http\Controllers\Api\Webhook\MtnMomoController;
-use App\Http\Controllers\Api\Webhook\OrangeMoneyController;
-use App\Http\Controllers\Api\Webhook\WaveController;
 
 /*
 |--------------------------------------------------------------------------
@@ -239,7 +226,7 @@ Route::prefix('v1/gocarbu/')->group(function () {
         Route::prefix('user')->group(function () {
 
             // Profil complet
-            Route::get('profile', [UserController::class, 'profile']);
+            Route::get('profile/{id}', [UserController::class, 'profile']);
 
             // Modifier le profil (nom, ville, avatar)
             Route::put('profile', [UserController::class, 'update']);
@@ -251,10 +238,10 @@ Route::prefix('v1/gocarbu/')->group(function () {
             Route::post('fcm-token', [UserController::class, 'updateFcmToken']);
 
             // Supprimer son compte
-            Route::delete('account', [UserController::class, 'deleteAccount']);
+            Route::delete('account/{id}', [UserController::class, 'deleteAccount']);
 
             // Abonnement premium de l'utilisateur
-            Route::get('subscription', [UserController::class, 'subscription']);
+            Route::get('subscription/{id}', [UserController::class, 'subscription']);
         });
 
         // ── Véhicules ────────────────────────────────────────────────
@@ -267,19 +254,19 @@ Route::prefix('v1/gocarbu/')->group(function () {
             Route::post('/', [VehicleController::class, 'store']);
 
             // Détail d'un véhicule
-            Route::get('{id}', [VehicleController::class, 'show']);
+            Route::get('{idUser}/{id}', [VehicleController::class, 'show']);
 
             // Modifier un véhicule
             Route::put('{id}', [VehicleController::class, 'update']);
 
             // Supprimer un véhicule
-            Route::delete('{id}', [VehicleController::class, 'destroy']);
+            Route::delete('{idUser}/{id}', [VehicleController::class, 'destroy']);
 
             // Définir comme véhicule principal
-            Route::patch('{id}/set-primary', [VehicleController::class, 'setPrimary']);
+            Route::patch('{idUser}/{id}/set-primary', [VehicleController::class, 'setPrimary']);
 
             // ── Documents d'un véhicule ──────────────────────────────
-            Route::prefix('{vehicleId}/documents')->group(function () {
+            Route::prefix('{idUser}/{vehicleId}/documents')->group(function () {
 
                 // Lister les documents
                 Route::get('/', [DocumentController::class, 'index']);
@@ -606,26 +593,6 @@ Route::prefix('v1/gocarbu/')->group(function () {
                 Route::post('cancel', [ProSubscriptionController::class, 'cancel']);
             });
         });
-    });
-
-    /*
-    |------------------------------------------------------------------
-    | BLOC 5 — WEBHOOKS PAIEMENT (sans auth, signature HMAC)
-    |------------------------------------------------------------------
-    */
-    Route::prefix('webhooks')->group(function () {
-
-        // Webhook CinetPay
-        Route::post('cinetpay', [CinetPayController::class, 'handle']);
-
-        // Webhook Orange Money
-        Route::post('orange-money', [OrangeMoneyController::class, 'handle']);
-
-        // Webhook MTN MoMo
-        Route::post('mtn-momo', [MtnMomoController::class, 'handle']);
-
-        // Webhook Wave
-        Route::post('wave', [WaveController::class, 'handle']);
     });
 
     /*

@@ -3,11 +3,6 @@
 namespace App\Http\Controllers\Api\Map;
 
 use App\Http\Controllers\Controller;
-use App\Models\Garage;
-use App\Models\GarageService;
-use App\Models\GarageView;
-use App\Models\Promotion;
-use App\Models\PartnerRequest;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -51,8 +46,8 @@ class GarageController extends Controller
         if ($lat && $lng) {
             $h = $this->haversine($lat, $lng);
             $query->selectRaw("*, ($h) AS distance")
-                  ->havingRaw('distance <= ?', [$radius])
-                  ->orderBy('distance');
+                ->havingRaw('distance <= ?', [$radius])
+                ->orderBy('distance');
         } else {
             $query->select('*')->orderByDesc('rating');
         }
@@ -95,11 +90,46 @@ class GarageController extends Controller
             ->limit($limit)
             ->get();
 
-        return response()->json([
-            'success' => true,
-            'data'    => $garages,
-            'meta'    => ['lat' => $lat, 'lng' => $lng, 'radius' => $radius, 'unit' => 'km'],
-        ]);
+        $result = $garages->map(function ($garage) {
+            $services = DB::table('garage_services')->where('garage_id', $garage->id_garage)->get();
+            $compagny = DB::table('garage_owners')->where('id_gara_owner', $garage->owner_id)->first('company_name');
+
+            return [
+                'id' => $garage->id_garage,
+                'name' => $garage->name,
+                'compagny' => $compagny->company_name,
+                'type' => $garage->type,
+                'address' => $garage->address ?? '',
+                'city' => $garage->city,
+                'country' => $garage->country,
+                'latitude' => $garage->latitude,
+                'longitude' => $garage->longitude,
+                'phone' => $garage->phone ?? '',
+                'whatsapp' => $garage->whatsapp ?? '',
+                'logo_url' => $garage->logo_url ?? '',
+                'photos' => $garage->photos ?? '',
+                'opens_at' => $garage->opens_at ?? '',
+                'closes_at' => $garage->closes_at ?? '',
+                'is_open_24h' => $garage->is_open_24h,
+                'is_verified' => $garage->is_verified,
+                'subscription_type' => $garage->subscription_type,
+                'subscription_expires_at' => $garage->subscription_expires_at ?? '',
+                'views_count' => $garage->views_count,
+                'is_active' => $garage->is_active,
+                'description' => $garage->description ?? '',
+                'distance' => $garage->distance,
+                'rating_count' => $garage->rating_count,
+                'rating' => $garage->rating,
+
+                'services' => $services->map(fn($s) => [
+                    'id'                   => $s->id_gara_service,
+                    'service'                 => $s->service,
+                    'price'                 => $s->price_range ?? '',
+                ])->values(),
+            ];
+        });
+
+        return response()->json($result);
     }
 
     // ─────────────────────────────────────────────
@@ -159,8 +189,8 @@ class GarageController extends Controller
         if ($lat && $lng) {
             $h = $this->haversine($lat, $lng);
             $query->selectRaw("*, ($h) AS distance")
-                  ->havingRaw('distance <= ?', [$radius])
-                  ->orderBy('distance');
+                ->havingRaw('distance <= ?', [$radius])
+                ->orderBy('distance');
         } else {
             $query->select('*')->orderByDesc('rating');
         }

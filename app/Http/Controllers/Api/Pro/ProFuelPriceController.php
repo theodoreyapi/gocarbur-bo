@@ -18,7 +18,7 @@ class ProFuelPriceController extends Controller
     // ─────────────────────────────────────────────
     public function index(Request $request, int $stationId): JsonResponse
     {
-        if (!$this->ownsStation($request->user()->id_station_owner, $stationId)) {
+        if (!$this->ownsStation($request->idOwner, $stationId)) {
             return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
         }
 
@@ -39,7 +39,7 @@ class ProFuelPriceController extends Controller
     {
         $this->requireProPlan($request);
 
-        if (!$this->ownsStation($request->user()->id_station_owner, $stationId)) {
+        if (!$this->ownsStation($request->idOwner, $stationId)) {
             return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
         }
 
@@ -105,7 +105,7 @@ class ProFuelPriceController extends Controller
     {
         $this->requireProPlan($request);
 
-        if (!$this->ownsStation($request->user()->id_station_owner, $stationId)) {
+        if (!$this->ownsStation($request->idOwner, $stationId)) {
             return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
         }
 
@@ -113,10 +113,10 @@ class ProFuelPriceController extends Controller
             'prices'               => 'required|array|min:1',
             'prices.*.fuel_type'   => 'required|in:essence,gasoil,sans_plomb,super,gpl',
             'prices.*.price'       => 'required|numeric|min:0',
-            'prices.*.is_available'=> 'sometimes|boolean',
+            'prices.*.is_available' => 'sometimes|boolean',
         ]);
 
-        $ownerId    = $request->user()->id_station_owner;
+        $ownerId    = $request->idOwner;
         $historyRows = [];
 
         foreach ($request->prices as $item) {
@@ -178,7 +178,7 @@ class ProFuelPriceController extends Controller
     {
         $this->requireProPlan($request);
 
-        if (!$this->ownsStation($request->user()->id_station_owner, $stationId)) {
+        if (!$this->ownsStation($request->idOwner, $stationId)) {
             return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
         }
 
@@ -209,14 +209,14 @@ class ProFuelPriceController extends Controller
     private function ownsStation(int $ownerId, int $stationId): bool
     {
         return DB::table('station_owner_station')
-            ->where('station_owner_id', $ownerId)
+            ->where('owner_id', $ownerId)
             ->where('station_id', $stationId)
             ->exists();
     }
 
     private function requireProPlan(Request $request): void
     {
-        $ownerId = $request->user()->id_station_owner;
+        $ownerId = $request->idOwner;
 
         $sub = DB::table('subscriptions')
             ->where('subscribable_type', 'App\Models\StationOwner')

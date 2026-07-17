@@ -98,7 +98,6 @@
             margin-top: 2px;
         }
 
-        /* Type breakdown row */
         .type-row {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -188,6 +187,10 @@
             color: var(--text);
             cursor: pointer;
             outline: none;
+        }
+
+        .form-select:focus {
+            border-color: var(--purple);
         }
 
         .tbl-wrap {
@@ -290,7 +293,6 @@
             font-size: 12px;
         }
 
-        /* Dropdown */
         .dropdown {
             position: relative;
             display: inline-block;
@@ -349,7 +351,6 @@
             margin: 4px 0;
         }
 
-        /* Buttons */
         .btn {
             display: inline-flex;
             align-items: center;
@@ -406,7 +407,6 @@
             border-radius: 7px;
         }
 
-        /* Pagination */
         .pagi-bar {
             padding: 14px 20px;
             display: flex;
@@ -461,7 +461,6 @@
             pointer-events: none;
         }
 
-        /* Modal */
         .modal-overlay {
             visibility: hidden;
             opacity: 0;
@@ -559,13 +558,16 @@
             background: #FAFBFC;
         }
 
-        /* Form */
         .form-label {
             font-size: 12.5px;
             font-weight: 600;
             color: var(--text);
             display: block;
             margin-bottom: 5px;
+        }
+
+        .required-mark {
+            color: var(--danger);
         }
 
         .form-control {
@@ -583,6 +585,11 @@
             border-color: var(--purple);
         }
 
+        textarea.form-control {
+            resize: vertical;
+            min-height: 64px;
+        }
+
         .form-grid-2 {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -593,7 +600,12 @@
             grid-column: span 2;
         }
 
-        /* Toggle */
+        .form-hint {
+            font-size: 11.5px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
         .toggle {
             position: relative;
             display: inline-flex;
@@ -636,7 +648,6 @@
             transform: translateX(18px);
         }
 
-        /* Service row in modal */
         .svc-row {
             display: flex;
             align-items: center;
@@ -652,7 +663,7 @@
             font-weight: 600;
             font-size: 13px;
             flex-shrink: 0;
-            width: 130px;
+            width: 150px;
         }
 
         .svc-price {
@@ -665,7 +676,33 @@
             padding: 5px 9px;
         }
 
-        /* Toast */
+        .svc-check-wrap {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .svc-check-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            background: #F1F5F9;
+            padding: 5px 10px;
+            border-radius: 20px;
+            user-select: none;
+            transition: background .15s;
+        }
+
+        .svc-check-label:hover {
+            background: #E2E8F0;
+        }
+
+        .svc-check-label input {
+            accent-color: var(--purple);
+        }
+
         #toast-container {
             position: fixed;
             bottom: 24px;
@@ -716,10 +753,6 @@
 
         .fw-600 {
             font-weight: 600;
-        }
-
-        .fw-700 {
-            font-weight: 700;
         }
 
         @keyframes fadeUp {
@@ -776,7 +809,7 @@
     <script>
         const CSRF = document.querySelector('meta[name=csrf-token]')?.content;
 
-        // ─── Config types ─────────────────────────────────────────────────────────────
+        // ─── Config ───────────────────────────────────────────────────────────────────
         const TYPE_CONFIG = {
             garage_general: {
                 label: 'Garage général',
@@ -792,13 +825,13 @@
             },
             lavage_auto: {
                 label: 'Lavage auto',
-                icon: 'fa-car-wash',
+                icon: 'fa-car',
                 bg: '#DBEAFE',
                 color: '#3B82F6'
             },
             pneus: {
                 label: 'Pneus',
-                icon: 'fa-circle',
+                icon: 'fa-circle-dot',
                 bg: '#FEF3C7',
                 color: '#F59E0B'
             },
@@ -849,11 +882,11 @@
             electricite: 'Électricité',
             carrosserie: 'Carrosserie',
             vitrage: 'Vitrage',
-            courroie_distribution: 'Courroie',
+            courroie_distribution: 'Courroie distrib.',
             amortisseurs: 'Amortisseurs',
             echappement: 'Échappement',
             revision_complete: 'Révision complète',
-            diagnostic_electronique: 'Diagnostic',
+            diagnostic_electronique: 'Diagnostic élec.',
             depannage_route: 'Dépannage route',
             remorquage: 'Remorquage',
             lavage_interieur: 'Lavage intérieur',
@@ -861,7 +894,9 @@
             polissage: 'Polissage',
         };
 
-        // ─── Filtres ─────────────────────────────────────────────────────────────────
+        const ALL_SERVICES = Object.keys(SVC_LABELS);
+
+        // ─── Filtres ──────────────────────────────────────────────────────────────────
         let searchTimer;
 
         function applyFilters() {
@@ -891,7 +926,7 @@
             window.location.href = url.toString();
         }
 
-        // ─── View garage ─────────────────────────────────────────────────────────────
+        // ─── View garage ──────────────────────────────────────────────────────────────
         let currentGarageId = null;
 
         function viewGarage(id) {
@@ -919,11 +954,11 @@
                         color: '#8B5CF6'
                     };
 
-                    // Header
                     document.getElementById('vIcon').className = `fa-solid ${tc.icon}`;
                     document.getElementById('vIcon').style.color = tc.color;
                     document.getElementById('vIconWrap').style.background = tc.bg;
                     document.getElementById('vName').textContent = g.name;
+                    document.getElementById('vOwner').textContent = g.owner_name || '—';
                     document.getElementById('vTypeBadge').textContent = tc.label;
                     document.getElementById('vSubInfo').textContent = `${g.address} • ${g.city}`;
 
@@ -939,7 +974,6 @@
                     document.getElementById('vStatusBadge').textContent = g.is_active ? 'Actif' : 'Désactivé';
                     document.getElementById('vVerifiedBadge').style.display = g.is_verified ? 'inline-flex' : 'none';
 
-                    // Stats
                     document.getElementById('vRatingVal').textContent = g.rating > 0 ?
                         `${Number(g.rating).toFixed(1)}/5` : '—';
                     document.getElementById('vRatingCount').textContent = `(${g.rating_count} avis)`;
@@ -948,35 +982,31 @@
                     document.getElementById('vHours').textContent = g.is_open_24h ? '24h/24' : ((g.opens_at || '—') +
                         ' – ' + (g.closes_at || '—'));
 
-                    // Stats mois
                     document.getElementById('vStatViews').textContent = d.data.stats_month?.view_profile?.count || 0;
                     document.getElementById('vStatCalls').textContent = d.data.stats_month?.call?.count || 0;
                     document.getElementById('vStatWhatsapp').textContent = d.data.stats_month?.whatsapp?.count || 0;
                     document.getElementById('vStatItinerary').textContent = d.data.stats_month?.itinerary?.count || 0;
 
-                    // Services
                     const svcHtml = (d.data.services || []).length ?
                         d.data.services.map(s =>
-                            `<span class="badge badge-type">${SVC_LABELS[s.service] || s.service}${s.price_range ? ' · <small>' + s.price_range + '</small>' : ''}</span>`
-                            ).join(' ') :
+                            `<span class="badge badge-type">${SVC_LABELS[s.service] || s.service}${s.price_range ? ' <small style="opacity:.7">· ' + s.price_range + '</small>' : ''}</span>`
+                        ).join(' ') :
                         '<span style="font-size:13px;color:var(--text-muted)">Aucun service enregistré</span>';
                     document.getElementById('vServices').innerHTML = svcHtml;
 
-                    // Avis récents
                     const reviewsHtml = (d.data.recent_reviews || []).length ?
                         d.data.recent_reviews.map(r => `
-                    <div style="padding:8px 0;border-bottom:1px solid var(--border)">
-                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
-                            <span style="font-size:13px;font-weight:600">${r.user_name}</span>
-                            <span style="color:var(--warning);font-size:12px">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</span>
-                        </div>
-                        <div style="font-size:12.5px;color:var(--text-muted)">${r.comment || '<em>Sans commentaire</em>'}</div>
-                        ${!r.is_approved ? '<span style="font-size:11px;color:var(--warning)">En attente de modération</span>' : ''}
-                    </div>`).join('') :
+                            <div style="padding:8px 0;border-bottom:1px solid var(--border)">
+                                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
+                                    <span style="font-size:13px;font-weight:600">${r.user_name}</span>
+                                    <span style="color:var(--warning);font-size:12px">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</span>
+                                </div>
+                                <div style="font-size:12.5px;color:var(--text-muted)">${r.comment || '<em>Sans commentaire</em>'}</div>
+                                ${!r.is_approved ? '<span style="font-size:11px;color:var(--warning)">En attente de modération</span>' : ''}
+                            </div>`).join('') :
                         '<p style="font-size:13px;color:var(--text-muted);margin:0">Aucun avis</p>';
                     document.getElementById('vReviews').innerHTML = reviewsHtml;
 
-                    // Boutons dynamiques
                     document.getElementById('vBtnVerify').textContent = g.is_verified ? '✕ Retirer badge' :
                     '✅ Vérifier';
                     document.getElementById('vBtnVerify').onclick = () => verifyGarage(id);
@@ -996,12 +1026,6 @@
         }
 
         // ─── Modal Services ───────────────────────────────────────────────────────────
-        const ALL_SERVICES = ['vidange', 'freins', 'pneus', 'batterie', 'climatisation', 'electricite', 'carrosserie',
-            'vitrage', 'courroie_distribution', 'amortisseurs', 'echappement', 'revision_complete',
-            'diagnostic_electronique', 'depannage_route', 'remorquage', 'lavage_interieur', 'lavage_exterieur',
-            'polissage'
-        ];
-
         let currentServiceGarageId = null;
 
         function openServicesModal(id, name, existingServices) {
@@ -1013,26 +1037,18 @@
                 svcMap[s.service] = s.price_range || '';
             });
 
-            const html = ALL_SERVICES.map(svc => `
-        <div class="svc-row">
-            <span class="svc-name">${SVC_LABELS[svc] || svc}</span>
-            <div class="svc-price">
-                <input type="text" class="form-control" id="svcprice_${svc}"
-                       value="${svcMap[svc] || ''}" placeholder="Ex: 15 000 – 25 000 FCFA">
-            </div>
-            <label class="toggle" title="Activer ce service">
-                <input type="checkbox" id="svccheck_${svc}" ${svcMap[svc] !== undefined || svcMap.hasOwnProperty(svc) ? 'checked' : ''}>
-                <span class="toggle-slider"></span>
-            </label>
-        </div>`).join('');
-
-            document.getElementById('svcList').innerHTML = html;
-
-            // Remettre les checks corrects depuis la map
-            Object.keys(svcMap).forEach(k => {
-                const el = document.getElementById('svccheck_' + k);
-                if (el) el.checked = true;
-            });
+            document.getElementById('svcList').innerHTML = ALL_SERVICES.map(svc => `
+                <div class="svc-row">
+                    <span class="svc-name">${SVC_LABELS[svc] || svc}</span>
+                    <div class="svc-price">
+                        <input type="text" class="form-control" id="svcprice_${svc}"
+                               value="${svcMap[svc] || ''}" placeholder="Ex: 15 000 – 25 000 FCFA">
+                    </div>
+                    <label class="toggle" title="Activer ce service">
+                        <input type="checkbox" id="svccheck_${svc}" ${svcMap.hasOwnProperty(svc) ? 'checked' : ''}>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>`).join('');
 
             openModal('modalServices');
         }
@@ -1054,7 +1070,7 @@
                 .filter(svc => document.getElementById('svccheck_' + svc)?.checked)
                 .map(svc => ({
                     service: svc,
-                    price_range: document.getElementById('svcprice_' + svc)?.value.trim() || null,
+                    price_range: document.getElementById('svcprice_' + svc)?.value.trim() || null
                 }));
 
             postAction(`/admin/garages/${currentServiceGarageId}/services`, {
@@ -1065,7 +1081,7 @@
             });
         }
 
-        // ─── Actions ─────────────────────────────────────────────────────────────────
+        // ─── Actions ──────────────────────────────────────────────────────────────────
         function verifyGarage(id) {
             postAction(`/admin/garages/${id}/verify`, {}, d => {
                 showToast(d.message, 'success');
@@ -1089,7 +1105,7 @@
                         headers: {
                             'X-CSRF-TOKEN': CSRF,
                             'Accept': 'application/json'
-                        },
+                        }
                     })
                     .then(r => r.json())
                     .then(d => {
@@ -1106,17 +1122,40 @@
             });
         }
 
+        // ─── Save garage (corrigé : owner_id requis, services = vrais services) ──────
         function saveGarage() {
+            const ownerId = document.getElementById('addOwner').value;
+            const name = document.getElementById('addName').value.trim();
+            const type = document.getElementById('addType').value;
+            const address = document.getElementById('addAddress').value.trim();
+            const city = document.getElementById('addCity').value;
+            const lat = document.getElementById('addLat').value;
+            const lng = document.getElementById('addLng').value;
+
+            if (!ownerId) {
+                showToast('Sélectionnez un propriétaire', 'error');
+                return;
+            }
+            if (!name || !type || !address || !city) {
+                showToast('Nom, type, adresse et ville requis', 'error');
+                return;
+            }
+            if (!lat || !lng) {
+                showToast('Latitude et longitude requises', 'error');
+                return;
+            }
+
             const services = Array.from(document.querySelectorAll('#addServicesWrap input[type=checkbox]:checked'))
                 .map(cb => cb.value);
 
-            const data = {
-                name: document.getElementById('addName').value.trim(),
-                type: document.getElementById('addType').value,
-                address: document.getElementById('addAddress').value.trim(),
-                city: document.getElementById('addCity').value,
-                latitude: document.getElementById('addLat').value,
-                longitude: document.getElementById('addLng').value,
+            postAction('/admin/garages', {
+                owner_id: ownerId,
+                name,
+                type,
+                address,
+                city,
+                latitude: lat,
+                longitude: lng,
                 phone: document.getElementById('addPhone').value.trim(),
                 whatsapp: document.getElementById('addWhatsapp').value.trim(),
                 opens_at: document.getElementById('addOpens').value,
@@ -1125,14 +1164,7 @@
                 subscription_type: document.getElementById('addPlan').value,
                 description: document.getElementById('addDescription').value.trim(),
                 services,
-            };
-
-            if (!data.name || !data.type || !data.address || !data.city) {
-                showToast('Nom, type, adresse et ville requis', 'error');
-                return;
-            }
-
-            postAction('/admin/garages', data, d => {
+            }, d => {
                 showToast(d.message, 'success');
                 closeModal('modalAddGarage');
                 setTimeout(() => location.reload(), 800);
@@ -1148,7 +1180,6 @@
             document.querySelectorAll('#garagesTable tbody input[type=checkbox]').forEach(c => c.checked = cb.checked);
         }
 
-        // ─── DOM row updates ──────────────────────────────────────────────────────────
         function updateRowVerified(id, isVerified) {
             const row = document.querySelector(`tr[data-garage-id="${id}"]`);
             if (!row) return;
@@ -1167,7 +1198,6 @@
             }
         }
 
-        // ─── Modal helpers ────────────────────────────────────────────────────────────
         function openModal(id) {
             const el = document.getElementById(id);
             if (!el) return;
@@ -1207,7 +1237,6 @@
             if (e.key === 'Escape') document.querySelectorAll('.modal-overlay.open').forEach(m => closeModal(m.id));
         });
 
-        // ─── Utilities ────────────────────────────────────────────────────────────────
         function postAction(url, body, onSuccess) {
             fetch(url, {
                     method: 'POST',
@@ -1216,7 +1245,7 @@
                         'Content-Type': 'application/json',
                         'Accept': 'application/json'
                     },
-                    body: JSON.stringify(body),
+                    body: JSON.stringify(body)
                 })
                 .then(r => r.json())
                 .then(d => {
@@ -1256,7 +1285,6 @@
 @section('content')
     <main class="page-content">
 
-        {{-- ── Header ── --}}
         <div class="page-hdr">
             <div>
                 <h1>Garages & Services</h1>
@@ -1272,48 +1300,43 @@
             </div>
         </div>
 
-        {{-- ── KPIs ── --}}
+        {{-- KPIs --}}
         <div class="kpi-row">
             <div class="kpi-mini">
-                <div class="kpi-mini-icon" style="background:#EDE9FE">
-                    <i class="fa-solid fa-wrench" style="color:var(--purple)"></i>
-                </div>
+                <div class="kpi-mini-icon" style="background:#EDE9FE"><i class="fa-solid fa-wrench"
+                        style="color:var(--purple)"></i></div>
                 <div>
                     <div class="kpi-mini-val">{{ number_format($kpis['total'], 0, ',', ' ') }}</div>
                     <div class="kpi-mini-lbl">Total garages</div>
                 </div>
             </div>
             <div class="kpi-mini">
-                <div class="kpi-mini-icon" style="background:#D1FAE5">
-                    <i class="fa-solid fa-shield-check" style="color:var(--success)"></i>
-                </div>
+                <div class="kpi-mini-icon" style="background:#D1FAE5"><i class="fa-solid fa-shield-check"
+                        style="color:var(--success)"></i></div>
                 <div>
                     <div class="kpi-mini-val">{{ $kpis['verified'] }}</div>
                     <div class="kpi-mini-lbl">Vérifiés</div>
                 </div>
             </div>
             <div class="kpi-mini">
-                <div class="kpi-mini-icon" style="background:#DBEAFE">
-                    <i class="fa-solid fa-crown" style="color:var(--info)"></i>
-                </div>
+                <div class="kpi-mini-icon" style="background:#DBEAFE"><i class="fa-solid fa-crown"
+                        style="color:var(--info)"></i></div>
                 <div>
                     <div class="kpi-mini-val">{{ $kpis['pro'] }}</div>
                     <div class="kpi-mini-lbl">Pro / Premium</div>
                 </div>
             </div>
             <div class="kpi-mini">
-                <div class="kpi-mini-icon" style="background:#FEF3C7">
-                    <i class="fa-solid fa-star" style="color:var(--warning)"></i>
-                </div>
+                <div class="kpi-mini-icon" style="background:#FEF3C7"><i class="fa-solid fa-star"
+                        style="color:var(--warning)"></i></div>
                 <div>
                     <div class="kpi-mini-val">{{ $kpis['avg_rating'] }}</div>
                     <div class="kpi-mini-lbl">Note moyenne</div>
                 </div>
             </div>
             <div class="kpi-mini">
-                <div class="kpi-mini-icon" style="background:#FEE2E2">
-                    <i class="fa-solid fa-ban" style="color:var(--danger)"></i>
-                </div>
+                <div class="kpi-mini-icon" style="background:#FEE2E2"><i class="fa-solid fa-ban"
+                        style="color:var(--danger)"></i></div>
                 <div>
                     <div class="kpi-mini-val">{{ $kpis['inactive'] }}</div>
                     <div class="kpi-mini-lbl">Désactivés</div>
@@ -1321,13 +1344,13 @@
             </div>
         </div>
 
-        {{-- ── Répartition par type ── --}}
+        {{-- Répartition par type --}}
         @php
             $typeIcons = [
                 'garage_general' => ['fa-car-wrench', '#8B5CF6', '#EDE9FE'],
                 'centre_vidange' => ['fa-oil-can', '#10B981', '#D1FAE5'],
-                'lavage_auto' => ['fa-car-wash', '#3B82F6', '#DBEAFE'],
-                'pneus' => ['fa-circle', '#F59E0B', '#FEF3C7'],
+                'lavage_auto' => ['fa-car', '#3B82F6', '#DBEAFE'],
+                'pneus' => ['fa-circle-dot', '#F59E0B', '#FEF3C7'],
                 'batterie' => ['fa-battery-full', '#F59E0B', '#FEF3C7'],
                 'climatisation' => ['fa-snowflake', '#3B82F6', '#DBEAFE'],
                 'electricite_auto' => ['fa-bolt', '#EF4444', '#FEE2E2'],
@@ -1347,7 +1370,28 @@
                 'carrosserie' => 'Carrosserie',
                 'vitrage' => 'Vitrage',
             ];
+            $svcLabels = [
+                'vidange' => 'Vidange',
+                'freins' => 'Freins',
+                'pneus' => 'Pneus',
+                'batterie' => 'Batterie',
+                'climatisation' => 'Climatisation',
+                'electricite' => 'Électricité',
+                'carrosserie' => 'Carrosserie',
+                'vitrage' => 'Vitrage',
+                'courroie_distribution' => 'Courroie distrib.',
+                'amortisseurs' => 'Amortisseurs',
+                'echappement' => 'Échappement',
+                'revision_complete' => 'Révision complète',
+                'diagnostic_electronique' => 'Diagnostic élec.',
+                'depannage_route' => 'Dépannage route',
+                'remorquage' => 'Remorquage',
+                'lavage_interieur' => 'Lavage intérieur',
+                'lavage_exterieur' => 'Lavage extérieur',
+                'polissage' => 'Polissage',
+            ];
         @endphp
+
         <div class="type-row">
             @foreach ($typeIcons as $typeKey => [$icon, $color, $bg])
                 @if ($byType->has($typeKey))
@@ -1363,37 +1407,35 @@
             @endforeach
         </div>
 
-        {{-- ── Table principale ── --}}
+        {{-- Table --}}
         <div class="card">
-
-            {{-- Filtres --}}
             <div class="filter-bar">
                 <div class="search-wrap">
                     <i class="fa-solid fa-magnifying-glass"></i>
-                    <input type="text" id="searchInput" class="search-inp" placeholder="Nom, ville, type..."
-                        value="{{ $search }}">
+                    <input type="text" id="searchInput" class="search-inp"
+                        placeholder="Nom, ville, type, propriétaire..." value="{{ $search }}">
                 </div>
-                <select id="filterType" class="form-select" style="width:170px" onchange="applyFilters()">
+                <select id="filterType" class="form-select" style="width:165px" onchange="applyFilters()">
                     <option value="">Tous les types</option>
                     @foreach ($typeLabels as $val => $lbl)
                         <option value="{{ $val }}" {{ $type === $val ? 'selected' : '' }}>{{ $lbl }}
                         </option>
                     @endforeach
                 </select>
-                <select id="filterPlan" class="form-select" style="width:140px" onchange="applyFilters()">
+                <select id="filterPlan" class="form-select" style="width:135px" onchange="applyFilters()">
                     <option value="">Tous les plans</option>
                     <option value="free" {{ $plan === 'free' ? 'selected' : '' }}>Gratuit</option>
                     <option value="pro" {{ $plan === 'pro' ? 'selected' : '' }}>Pro</option>
                     <option value="premium" {{ $plan === 'premium' ? 'selected' : '' }}>Premium</option>
                 </select>
-                <select id="filterCity" class="form-select" style="width:150px" onchange="applyFilters()">
+                <select id="filterCity" class="form-select" style="width:145px" onchange="applyFilters()">
                     <option value="">Toutes les villes</option>
                     @foreach ($cities as $c)
                         <option value="{{ $c }}" {{ $city === $c ? 'selected' : '' }}>{{ $c }}
                         </option>
                     @endforeach
                 </select>
-                <select id="filterStatus" class="form-select" style="width:140px" onchange="applyFilters()">
+                <select id="filterStatus" class="form-select" style="width:135px" onchange="applyFilters()">
                     <option value="">Statut</option>
                     <option value="active" {{ $status === 'active' ? 'selected' : '' }}>Actif</option>
                     <option value="inactive" {{ $status === 'inactive' ? 'selected' : '' }}>Désactivé</option>
@@ -1403,17 +1445,16 @@
                 </button>
             </div>
 
-            {{-- Table --}}
             <div class="tbl-wrap">
                 <table class="data-tbl" id="garagesTable">
                     <thead>
                         <tr>
                             <th><input type="checkbox" onchange="selectAll(this)"></th>
                             <th>Garage</th>
+                            <th>Propriétaire</th>
                             <th>Type</th>
                             <th>Ville</th>
                             <th>Note</th>
-                            <th>Avis</th>
                             <th>Plan</th>
                             <th>Statut</th>
                             <th>Vues</th>
@@ -1442,6 +1483,7 @@
                                         </div>
                                     </div>
                                 </td>
+                                <td>{{ $garage->owner_name ?? '—' }}</td>
                                 <td><span class="badge badge-type">{{ $tLabel }}</span></td>
                                 <td>{{ $garage->city }}</td>
                                 <td>
@@ -1449,12 +1491,13 @@
                                         <div class="star-row">
                                             <i class="fa-solid fa-star"></i>
                                             <span class="fw-600">{{ number_format($garage->rating, 1) }}</span>
+                                            <span
+                                                style="font-size:11px;color:var(--text-muted)">({{ $garage->rating_count }})</span>
                                         </div>
                                     @else
                                         <span style="color:var(--text-muted);font-size:12px">—</span>
                                     @endif
                                 </td>
-                                <td style="font-weight:600">{{ $garage->rating_count }}</td>
                                 <td>
                                     @if ($garage->subscription_type === 'premium')
                                         <span class="badge badge-premium"><i class="fa-solid fa-crown"
@@ -1479,9 +1522,8 @@
                                 <td style="font-weight:600">{{ number_format($garage->views_count, 0, ',', ' ') }}</td>
                                 <td>
                                     <div class="dropdown">
-                                        <button class="btn btn-sm btn-secondary">
-                                            <i class="fa-solid fa-ellipsis"></i>
-                                        </button>
+                                        <button class="btn btn-sm btn-secondary"><i
+                                                class="fa-solid fa-ellipsis"></i></button>
                                         <div class="dropdown-menu">
                                             <button class="dropdown-item" onclick="viewGarage({{ $garage->id_garage }})">
                                                 <i class="fa-solid fa-eye"></i> Voir détail
@@ -1518,7 +1560,7 @@
                                         style="font-size:28px;opacity:.3;display:block;margin-bottom:10px"></i>
                                     Aucun garage trouvé
                                     @if ($search || $type || $plan || $city || $status)
-                                        — <a href="{{ route('admin.garages.index') }}"
+                                        — <a href="{{ route('garages.index') }}"
                                             style="color:var(--purple)">réinitialiser les filtres</a>
                                     @endif
                                 </td>
@@ -1528,7 +1570,6 @@
                 </table>
             </div>
 
-            {{-- Pagination --}}
             <div class="pagi-bar">
                 <span class="pagi-info">
                     Affichage {{ $garages->firstItem() ?? 0 }}–{{ $garages->lastItem() ?? 0 }}
@@ -1567,10 +1608,9 @@
                 </div>
             </div>
         </div>
-
     </main>
 
-    {{-- ══ Modal Ajouter Garage ══ --}}
+    {{-- ══ Modal — Ajouter garage (CORRIGÉ) ══ --}}
     <div class="modal-overlay" id="modalAddGarage">
         <div class="modal-box md">
             <div class="modal-hdr">
@@ -1579,13 +1619,32 @@
             </div>
             <div class="modal-body">
                 <div class="form-grid-2">
+
+                    {{-- Propriétaire (requis, FK NOT NULL) --}}
                     <div class="col-span-2">
-                        <label class="form-label">Nom du garage *</label>
+                        <label class="form-label">Propriétaire <span class="required-mark">*</span></label>
+                        <select id="addOwner" class="form-select" style="width:100%">
+                            <option value="">— Choisir un propriétaire approuvé —</option>
+                            @foreach ($owners as $o)
+                                <option value="{{ $o->id_gara_owner }}">
+                                    {{ $o->name }}{{ $o->company_name ? ' — ' . $o->company_name : '' }}
+                                </option>
+                            @endforeach
+                        </select>
+                        <div class="form-hint">
+                            Seuls les propriétaires au statut "approuvé" apparaissent.
+                            <a href="{{ route('garage-owners.index') }}" style="color:var(--purple)">Gérer les
+                                propriétaires</a>
+                        </div>
+                    </div>
+
+                    <div class="col-span-2">
+                        <label class="form-label">Nom du garage <span class="required-mark">*</span></label>
                         <input type="text" id="addName" class="form-control"
                             placeholder="Ex: Garage Auto Plus Cocody">
                     </div>
                     <div>
-                        <label class="form-label">Type *</label>
+                        <label class="form-label">Type <span class="required-mark">*</span></label>
                         <select id="addType" class="form-select" style="width:100%">
                             <option value="">— Sélectionner —</option>
                             @foreach ($typeLabels as $val => $lbl)
@@ -1594,30 +1653,28 @@
                         </select>
                     </div>
                     <div>
-                        <label class="form-label">Ville *</label>
+                        <label class="form-label">Ville <span class="required-mark">*</span></label>
                         <select id="addCity" class="form-select" style="width:100%">
                             <option value="">— Sélectionner —</option>
                             @foreach ($cities as $c)
                                 <option value="{{ $c }}">{{ $c }}</option>
                             @endforeach
-                            <option value="Abidjan">Abidjan</option>
-                            <option value="Bouaké">Bouaké</option>
-                            <option value="Daloa">Daloa</option>
-                            <option value="Yamoussoukro">Yamoussoukro</option>
-                            <option value="San-Pédro">San-Pédro</option>
+                            @foreach (['Abidjan', 'Bouaké', 'Daloa', 'Yamoussoukro', 'San-Pédro'] as $c)
+                                <option value="{{ $c }}">{{ $c }}</option>
+                            @endforeach
                         </select>
                     </div>
                     <div class="col-span-2">
-                        <label class="form-label">Adresse complète *</label>
+                        <label class="form-label">Adresse complète <span class="required-mark">*</span></label>
                         <input type="text" id="addAddress" class="form-control"
                             placeholder="Ex: Rue des Jardins, Cocody">
                     </div>
                     <div>
-                        <label class="form-label">Latitude</label>
+                        <label class="form-label">Latitude <span class="required-mark">*</span></label>
                         <input type="number" id="addLat" class="form-control" placeholder="5.3544" step="0.000001">
                     </div>
                     <div>
-                        <label class="form-label">Longitude</label>
+                        <label class="form-label">Longitude <span class="required-mark">*</span></label>
                         <input type="number" id="addLng" class="form-control" placeholder="-4.0082"
                             step="0.000001">
                     </div>
@@ -1654,14 +1711,15 @@
                     </div>
                     <div class="col-span-2">
                         <label class="form-label">Description</label>
-                        <textarea id="addDescription" class="form-control" rows="2" placeholder="Description du garage..."></textarea>
+                        <textarea id="addDescription" class="form-control" placeholder="Description du garage..."></textarea>
                     </div>
+
+                    {{-- Services (vrais services, pas les types de garage) --}}
                     <div class="col-span-2">
                         <label class="form-label">Services proposés</label>
-                        <div id="addServicesWrap" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:6px">
-                            @foreach ($typeLabels as $svc => $lbl)
-                                <label
-                                    style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;background:#F1F5F9;padding:5px 10px;border-radius:20px">
+                        <div id="addServicesWrap" class="svc-check-wrap" style="margin-top:6px">
+                            @foreach ($svcLabels as $svc => $lbl)
+                                <label class="svc-check-label">
                                     <input type="checkbox" value="{{ $svc }}"> {{ $lbl }}
                                 </label>
                             @endforeach
@@ -1678,7 +1736,7 @@
         </div>
     </div>
 
-    {{-- ══ Modal Voir Garage ══ --}}
+    {{-- ══ Modal — Voir garage ══ --}}
     <div class="modal-overlay" id="modalViewGarage">
         <div class="modal-box md">
             <div class="modal-hdr">
@@ -1686,7 +1744,6 @@
                 <button class="modal-close" data-modal-close="modalViewGarage">✕</button>
             </div>
             <div class="modal-body">
-
                 <div id="viewLoading" style="display:flex;align-items:center;justify-content:center;padding:40px">
                     <div style="text-align:center;color:var(--text-muted)">
                         <i class="fa-solid fa-spinner fa-spin"
@@ -1694,9 +1751,7 @@
                         Chargement...
                     </div>
                 </div>
-
                 <div id="viewContent" style="display:none">
-                    {{-- Header --}}
                     <div
                         style="display:flex;align-items:center;gap:16px;margin-bottom:20px;padding-bottom:18px;border-bottom:1px solid var(--border)">
                         <div id="vIconWrap"
@@ -1706,6 +1761,9 @@
                         <div>
                             <div id="vName" style="font-size:17px;font-weight:700;color:var(--text)"></div>
                             <div id="vSubInfo" style="color:var(--text-muted);font-size:13px;margin-top:2px"></div>
+                            <div style="font-size:12px;color:var(--text-muted);margin-top:2px">
+                                Propriétaire : <strong id="vOwner" style="color:var(--text)"></strong>
+                            </div>
                             <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
                                 <span id="vTypeBadge" class="badge badge-type"></span>
                                 <span id="vPlanBadge" class="badge"></span>
@@ -1721,7 +1779,7 @@
                     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">
                         @foreach ([['vStatViews', 'Vues', '#EDE9FE', 'var(--purple)', 'fa-eye'], ['vStatCalls', 'Appels', '#D1FAE5', 'var(--success)', 'fa-phone'], ['vStatWhatsapp', 'WhatsApp', '#DBEAFE', 'var(--info)', 'fa-brands fa-whatsapp'], ['vStatItinerary', 'Itinéraires', '#FFF0EB', 'var(--primary)', 'fa-route']] as [$elId, $lbl, $bg, $c, $icon])
                             <div style="background:{{ $bg }};border-radius:9px;padding:10px;text-align:center">
-                                <i class="fa-solid {{ $icon }}"
+                                <i class="{{ $icon }}"
                                     style="color:{{ $c }};font-size:14px;display:block;margin-bottom:4px"></i>
                                 <div id="{{ $elId }}"
                                     style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--text)">
@@ -1731,36 +1789,35 @@
                         @endforeach
                     </div>
 
-                    {{-- Infos grille --}}
+                    {{-- Infos --}}
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px">
-                        @foreach ([['vRatingVal vRatingCount', 'Note', 'flex'], ['vViews', 'Vues total', 'block'], ['vPhone', 'Téléphone', 'block'], ['vHours', 'Horaires', 'block']] as [$elIds, $lbl, $disp])
+                        <div style="background:var(--bg);border-radius:9px;padding:10px 12px">
+                            <div
+                                style="font-size:10.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">
+                                Note</div>
+                            <div style="display:flex;align-items:center;gap:6px">
+                                <span id="vRatingVal"
+                                    style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800">—</span>
+                                <span id="vRatingCount" style="font-size:12px;color:var(--text-muted)"></span>
+                            </div>
+                        </div>
+                        @foreach ([['vViews', 'Vues total'], ['vPhone', 'Téléphone'], ['vHours', 'Horaires']] as [$elId, $lbl])
                             <div style="background:var(--bg);border-radius:9px;padding:10px 12px">
                                 <div
                                     style="font-size:10.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px">
                                     {{ $lbl }}</div>
-                                <div style="display:{{ $disp }};align-items:center;gap:6px">
-                                    @if (str_contains($elIds, ' '))
-                                        <span id="vRatingVal"
-                                            style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800">—</span>
-                                        <span id="vRatingCount" style="font-size:12px;color:var(--text-muted)"></span>
-                                    @else
-                                        <div id="{{ $elIds }}"
-                                            style="font-size:14px;font-weight:600;color:var(--text)">—</div>
-                                    @endif
+                                <div id="{{ $elId }}" style="font-size:14px;font-weight:600;color:var(--text)">—
                                 </div>
                             </div>
                         @endforeach
                     </div>
 
-                    {{-- Services --}}
                     <div style="margin-bottom:16px">
                         <div
                             style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">
                             Services</div>
                         <div id="vServices" style="display:flex;flex-wrap:wrap;gap:6px"></div>
                     </div>
-
-                    {{-- Avis récents --}}
                     <div style="margin-bottom:18px">
                         <div
                             style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">
@@ -1768,11 +1825,9 @@
                         <div id="vReviews"></div>
                     </div>
 
-                    {{-- Actions --}}
                     <div style="display:flex;gap:10px">
-                        <button id="vBtnServices" class="btn btn-primary" style="flex:1;justify-content:center">
-                            <i class="fa-solid fa-list"></i> Services
-                        </button>
+                        <button id="vBtnServices" class="btn btn-primary" style="flex:1;justify-content:center"><i
+                                class="fa-solid fa-list"></i> Services</button>
                         <button id="vBtnVerify" class="btn btn-secondary" style="flex:1;justify-content:center"></button>
                         <button id="vBtnToggle" class="btn btn-secondary" style="flex:1;justify-content:center"></button>
                     </div>
@@ -1781,7 +1836,7 @@
         </div>
     </div>
 
-    {{-- ══ Modal Gérer Services ══ --}}
+    {{-- ══ Modal — Gérer services ══ --}}
     <div class="modal-overlay" id="modalServices">
         <div class="modal-box sm">
             <div class="modal-hdr">
@@ -1789,17 +1844,16 @@
                 <button class="modal-close" data-modal-close="modalServices">✕</button>
             </div>
             <div class="modal-body">
-                <p id="svcModalGarageName" style="color:var(--text-muted);font-size:13px;margin:0 0 14px;font-weight:600">
+                <p id="svcModalGarageName" style="color:var(--text-muted);font-size:13px;margin:0 0 6px;font-weight:600">
                 </p>
-                <p style="font-size:12px;color:var(--text-muted);margin:0 0 12px">Cochez les services proposés et
-                    renseignez la fourchette de prix.</p>
+                <p style="font-size:12px;color:var(--text-muted);margin:0 0 14px">Cochez les services proposés et
+                    renseignez la fourchette de prix optionnelle.</p>
                 <div id="svcList"></div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-modal-close="modalServices">Annuler</button>
-                <button class="btn btn-primary" onclick="saveServices()">
-                    <i class="fa-solid fa-check"></i> Sauvegarder
-                </button>
+                <button class="btn btn-primary" onclick="saveServices()"><i class="fa-solid fa-check"></i>
+                    Sauvegarder</button>
             </div>
         </div>
     </div>

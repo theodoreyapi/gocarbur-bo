@@ -37,6 +37,7 @@ class Station extends Model
         'views_count',
         'is_active',
         'description',
+        'owner_id',
     ];
 
     protected $casts = [
@@ -85,5 +86,30 @@ class Station extends Model
         return $this->morphOne(Subscription::class, 'subscribable')
             ->where('status', 'active')
             ->latest('starts_at');
+    }
+
+
+    // Propriétaire principal (FK directe owner_id)
+    public function owner()
+    {
+        return $this->belongsTo(StationOwner::class, 'owner_id', 'id_station_owner');
+    }
+
+    public function fuelPrices()
+    {
+        return $this->hasMany(FuelPrice::class, 'station_id', 'id_station');
+    }
+
+    // Équipe (managers/employees + propriétaire) via la table pivot station_owner_station
+    public function team()
+    {
+        return $this->belongsToMany(
+            StationOwner::class,
+            'station_owner_station',
+            'station_id',
+            'owner_id',
+            'id_station',
+            'id_station_owner'
+        )->withPivot('id_stat_owner_stat', 'role')->withTimestamps();
     }
 }

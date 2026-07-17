@@ -8,7 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('garage_owners', function (Blueprint $table) {
+         Schema::create('garage_owners', function (Blueprint $table) {
             $table->id('id_gara_owner')->primary();
             $table->string('name');
             $table->string('email')->unique();
@@ -40,7 +40,7 @@ return new class extends Migration
                 'electricite_auto',
                 'depannage',
                 'carrosserie',
-                'vitrage'
+                'vitrage',
             ]);
             $table->string('address');
             $table->string('city');
@@ -95,7 +95,7 @@ return new class extends Migration
                 'remorquage',
                 'lavage_interieur',
                 'lavage_exterieur',
-                'polissage'
+                'polissage',
             ]);
             $table->string('price_range')->nullable()->comment('Ex: 5000 - 15000 FCFA');
 
@@ -104,7 +104,8 @@ return new class extends Migration
 
             $table->timestamps();
 
-            $table->unique('service');
+            // Corrigé : unicité par garage, pas globale.
+            $table->unique(['garage_id', 'service']);
         });
 
         Schema::create('garage_owner_garage', function (Blueprint $table) {

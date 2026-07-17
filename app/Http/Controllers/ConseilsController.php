@@ -151,7 +151,6 @@ class ConseilsController extends Controller
             'views_count'       => 0,
             'read_time_minutes' => $validated['read_time_minutes'] ?? $this->estimateReadTime($validated['content']),
             'tags'              => !empty($validated['tags']) ? json_encode($validated['tags']) : null,
-            'admin_id'          => auth()->id(),
             'created_at'        => now(),
             'updated_at'        => now(),
         ]);

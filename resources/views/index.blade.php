@@ -513,7 +513,7 @@
                 <div class="card-header">
                     <div class="card-title"><i class="fa-solid fa-users" style="color:var(--primary)"></i>
                         Dernières inscriptions</div>
-                    <a href="{{ url('admin.users.index') }}" class="btn btn-sm btn-secondary">Voir tout</a>
+                    <a href="{{ url('users') }}" class="btn btn-sm btn-secondary">Voir tout</a>
                 </div>
                 <div class="table-wrapper">
                     <table class="table">
@@ -586,7 +586,7 @@
                                 style="background:var(--danger);color:#fff;font-size:10px;padding:2px 7px;border-radius:20px;margin-left:4px">{{ $pendingRequests }}</span>
                         @endif
                     </div>
-                    <a href="{{ url('admin.partner-requests.index') }}" class="btn btn-sm btn-secondary">Voir tout</a>
+                    <a href="{{ url('partner-requests') }}" class="btn btn-sm btn-secondary">Voir tout</a>
                 </div>
                 <div class="card-body" style="padding:0">
                     <div style="display:flex;flex-direction:column">

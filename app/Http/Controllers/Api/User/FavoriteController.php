@@ -20,7 +20,7 @@ class FavoriteController extends Controller
     // GET /connecte/favorites
     public function index(Request $request): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
 
         $favorites = DB::table('favorites')
             ->where('user_id', $userId)
@@ -57,7 +57,7 @@ class FavoriteController extends Controller
             'id'   => 'required|integer|min:1',
         ]);
 
-        $userId        = $request->user()->id_user_carbu;
+        $userId        = $request->idUser;
         $favoriteType  = self::TYPE_MAP[$validated['type']];
         $favoriteId    = $validated['id'];
 
@@ -100,7 +100,7 @@ class FavoriteController extends Controller
         }
 
         $deleted = DB::table('favorites')
-            ->where('user_id', $request->user()->id_user_carbu)
+            ->where('user_id', $request->idUser)
             ->where('favoriteable_type', self::TYPE_MAP[$type])
             ->where('favoriteable_id', $id)
             ->delete();
@@ -120,7 +120,7 @@ class FavoriteController extends Controller
         }
 
         $isFav = DB::table('favorites')
-            ->where('user_id', $request->user()->id_user_carbu)
+            ->where('user_id', $request->idUser)
             ->where('favoriteable_type', self::TYPE_MAP[$type])
             ->where('favoriteable_id', $id)
             ->exists();

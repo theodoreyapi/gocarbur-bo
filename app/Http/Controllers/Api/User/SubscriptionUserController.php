@@ -9,6 +9,8 @@ use App\Services\PaymentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class SubscriptionUserController extends Controller
@@ -29,7 +31,7 @@ class SubscriptionUserController extends Controller
             [
                 'plan'          => 'user_premium',
                 'label'         => 'Premium',
-                'price'         => 1500,
+                'price'         => 2000,
                 'currency'      => 'XOF',
                 'billing_cycle' => 'mensuel',
                 'features'      => ['Tout gratuit +', 'Véhicules illimités', 'Statistiques carburant', 'Rappels avancés', 'Sans publicités'],
@@ -42,54 +44,116 @@ class SubscriptionUserController extends Controller
     // POST /connecte/subscription/initiate
     public function initiate(Request $request): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
 
         $validated = $request->validate([
             'plan'           => 'required|in:user_premium',
             'billing_cycle'  => 'required|in:mensuel,trimestriel,annuel',
-            'payment_method' => 'required|in:orange_money,mtn_money,moov_money,cinetpay,wave',
-            'phone'          => 'required|string|max:20',
+            'payment_method' => 'required|in:orange_money,mtn_money,moov_money,wave',
+            'starts' => 'required',
+            'expires' => 'required',
         ]);
 
-        $amounts = ['mensuel' => 1500, 'trimestriel' => 4000, 'annuel' => 15000];
+        $amounts = ['mensuel' => 2000, 'trimestriel' => 5000, 'annuel' => 20000];
         $amount  = $amounts[$validated['billing_cycle']];
 
         $reference = 'SUB-' . strtoupper(uniqid());
 
-        // Créer la transaction en attente
-        $transactionId = DB::table('payment_transactions')->insertGetId([
-            'reference'      => $reference,
-            'payer_type'     => 'App\Models\UserCarbur',
-            'payer_id'       => $userId,
-            'amount'         => $amount,
-            'currency'       => 'XOF',
-            'payment_method' => $validated['payment_method'],
-            'phone_payer'    => $validated['phone'],
-            'status'         => 'pending',
-            'created_at'     => now(),
-            'updated_at'     => now(),
-        ]);
+        try {
+
+            // Créer un abonnement en attente
+            $subscription = DB::table('subscriptions')->create([
+                'subscribable_type'     => 'App\Models\UserCarbur',
+                'subscribable_id'       => $userId,
+                'amount'                => $amount,
+                'currency'              => 'XOF',
+                'payment_method'        => $validated['payment_method'],
+                'plan'                  => $validated['plan'],
+                'billing_cycle'         => $validated['billing_cycle'],
+                'starts_at'             => $validated['starts'],
+                'expires_at'            => $validated['expires'],
+                'status'                => 'pending',
+                'created_at'            => now(),
+                'updated_at'            => now(),
+            ]);
+
+            // Créer la transaction en attente
+            $transaction = DB::table('payment_transactions')->create([
+                'reference'         => $reference,
+                'payer_type'        => 'App\Models\UserCarbur',
+                'payer_id'          => $userId,
+                'amount'            => $amount,
+                'subscription_id'   => $subscription->id_subcrip,
+                'currency'          => 'XOF',
+                'payment_method'    => $validated['payment_method'],
+                'status'            => 'pending',
+                'created_at'        => now(),
+                'updated_at'        => now(),
+            ]);
+
+            $payload = [
+                'amount' => (string) $amount,
+                'currency' => 'XOF',
+                'success_url' => 'https://pay.gocarbu.com/payment/wave/success/' . $subscription->id_subcrip,
+                'error_url'   => 'https://pay.gocarbu.com/payment/wave/error/' . $subscription->id_subcrip,
+                'client_reference' => (string) $userId,
+            ];
+
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer wave_ci_prod_tIc5B0OlAxjucp29W83a2YLvua7Z7FOTmAFYtQlONucpqcNHU0TklALECuBP-nf5HL8HkGgopw0UzPFz2aXld43qhMcAwXINng',
+                'Content-Type'  => 'application/json',
+            ])->post('https://api.wave.com/v1/checkout/sessions', $payload);
+
+            if (!$response->successful()) {
+                Log::error('Wave error', $response->json());
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Erreur Wave',
+                    'details' => $response->json(),
+                ], 500);
+            }
+
+            $data = $response->json();
+
+            $subscription->update([
+                'payment_transaction_id' => $data['id'],
+            ]);
+            $transaction->update([
+                'operator_transaction_id' => $data['id'],
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'subscription_url' => $data['wave_launch_url'],
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Wave Exception', ['error' => $e->getMessage()]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur serveur',
+            ], 500);
+        }
 
         // TODO : appeler l'API de paiement (CinetPay, Orange Money, etc.)
         // $paymentResponse = PaymentService::initiate($reference, $amount, $validated);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Paiement initié.',
-            'data'    => [
-                'reference'      => $reference,
-                'amount'         => $amount,
-                'currency'       => 'XOF',
-                'payment_method' => $validated['payment_method'],
-                // 'payment_url' => $paymentResponse->url, // lien redirect opérateur
-            ],
-        ]);
+        // return response()->json([
+        //     'success' => true,
+        //     'message' => 'Paiement initié.',
+        //     'data'    => [
+        //         'reference'      => $reference,
+        //         'amount'         => $amount,
+        //         'currency'       => 'XOF',
+        //         'payment_method' => $validated['payment_method'],
+        //         // 'payment_url' => $paymentResponse->url, // lien redirect opérateur
+        //     ],
+        // ]);
     }
 
     // GET /connecte/subscription/status/{reference}
     public function status(Request $request, string $reference): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
 
         $transaction = DB::table('payment_transactions')
             ->where('reference', $reference)
@@ -107,7 +171,7 @@ class SubscriptionUserController extends Controller
     // POST /connecte/subscription/cancel
     public function cancel(Request $request): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
 
         $validated = $request->validate([
             'reason' => 'nullable|string|max:500',
@@ -147,7 +211,7 @@ class SubscriptionUserController extends Controller
     // GET /connecte/subscription/history
     public function history(Request $request): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
         $limit  = $request->input('limit', 10);
         $page   = max(1, (int) $request->input('page', 1));
 

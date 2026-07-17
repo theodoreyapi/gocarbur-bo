@@ -16,7 +16,7 @@ class ProPromotionController extends Controller
     // GET /pro/subscription/stations/{stationId}/promotions
     public function indexStation(Request $request, int $stationId): JsonResponse
     {
-        if (!$this->ownsStation($request->user()->id_station_owner, $stationId)) {
+        if (!$this->ownsStation($request->idOwner, $stationId)) {
             return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
         }
 
@@ -35,7 +35,7 @@ class ProPromotionController extends Controller
     {
         $this->requireProPlanStation($request);
 
-        if (!$this->ownsStation($request->user()->id_station_owner, $stationId)) {
+        if (!$this->ownsStation($request->idOwner, $stationId)) {
             return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
         }
 
@@ -59,7 +59,7 @@ class ProPromotionController extends Controller
     {
         $this->requireProPlanStation($request);
 
-        if (!$this->ownsStation($request->user()->id_station_owner, $stationId)) {
+        if (!$this->ownsStation($request->idOwner, $stationId)) {
             return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
         }
 
@@ -88,7 +88,7 @@ class ProPromotionController extends Controller
     {
         $this->requireProPlanStation($request);
 
-        if (!$this->ownsStation($request->user()->id_station_owner, $stationId)) {
+        if (!$this->ownsStation($request->idOwner, $stationId)) {
             return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
         }
 
@@ -113,7 +113,7 @@ class ProPromotionController extends Controller
     // GET /pro/subscription/garages/{garageId}/promotions
     public function indexGarage(Request $request, int $garageId): JsonResponse
     {
-        if (!$this->ownsGarage($request->user()->id_gara_owner, $garageId)) {
+        if (!$this->ownsGarage($request->idOwner, $garageId)) {
             return response()->json(['success' => false, 'message' => 'Garage introuvable.'], 404);
         }
 
@@ -132,7 +132,7 @@ class ProPromotionController extends Controller
     {
         $this->requireProPlanGarage($request);
 
-        if (!$this->ownsGarage($request->user()->id_gara_owner, $garageId)) {
+        if (!$this->ownsGarage($request->idOwner, $garageId)) {
             return response()->json(['success' => false, 'message' => 'Garage introuvable.'], 404);
         }
 
@@ -156,7 +156,7 @@ class ProPromotionController extends Controller
     {
         $this->requireProPlanGarage($request);
 
-        if (!$this->ownsGarage($request->user()->id_gara_owner, $garageId)) {
+        if (!$this->ownsGarage($request->idOwner, $garageId)) {
             return response()->json(['success' => false, 'message' => 'Garage introuvable.'], 404);
         }
 
@@ -185,7 +185,7 @@ class ProPromotionController extends Controller
     {
         $this->requireProPlanGarage($request);
 
-        if (!$this->ownsGarage($request->user()->id_gara_owner, $garageId)) {
+        if (!$this->ownsGarage($request->idOwner, $garageId)) {
             return response()->json(['success' => false, 'message' => 'Garage introuvable.'], 404);
         }
 
@@ -271,7 +271,7 @@ class ProPromotionController extends Controller
     private function ownsStation(int $ownerId, int $stationId): bool
     {
         return DB::table('station_owner_station')
-            ->where('station_owner_id', $ownerId)
+            ->where('owner_id', $ownerId)
             ->where('station_id', $stationId)
             ->exists();
     }
@@ -279,7 +279,7 @@ class ProPromotionController extends Controller
     private function ownsGarage(int $ownerId, int $garageId): bool
     {
         return DB::table('garage_owner_garage')
-            ->where('garage_owner_id', $ownerId)
+            ->where('owner_id', $ownerId)
             ->where('garage_id', $garageId)
             ->exists();
     }
@@ -288,7 +288,7 @@ class ProPromotionController extends Controller
     {
         $sub = DB::table('subscriptions')
             ->where('subscribable_type', 'App\Models\StationOwner')
-            ->where('subscribable_id', $request->user()->id_station_owner)
+            ->where('subscribable_id', $request->idOwner)
             ->where('status', 'active')
             ->whereIn('plan', ['station_pro', 'station_premium'])
             ->where('expires_at', '>=', now()->toDateString())
@@ -301,7 +301,7 @@ class ProPromotionController extends Controller
     {
         $sub = DB::table('subscriptions')
             ->where('subscribable_type', 'App\Models\GarageOwner')
-            ->where('subscribable_id', $request->user()->id_gara_owner)
+            ->where('subscribable_id', $request->idOwner)
             ->where('status', 'active')
             ->whereIn('plan', ['garage_pro', 'garage_premium'])
             ->where('expires_at', '>=', now()->toDateString())

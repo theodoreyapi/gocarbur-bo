@@ -30,7 +30,7 @@ class ArticleController extends Controller
             'page'      => 'nullable|integer|min:1',
         ]);
 
-        $limit = $request->input('limit', 10);
+        $limit = $request->input('limit', 30);
         $page  = max(1, (int) $request->input('page', 1));
 
         $query = DB::table('articles')

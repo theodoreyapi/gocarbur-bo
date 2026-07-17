@@ -16,7 +16,7 @@ class ReminderController extends Controller
     // ─────────────────────────────────────────────
     public function index(Request $request): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
         $limit  = $request->input('limit', 20);
         $page   = max(1, (int) $request->input('page', 1));
 
@@ -41,7 +41,7 @@ class ReminderController extends Controller
     // ─────────────────────────────────────────────
     public function upcoming(Request $request): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
         $days   = $request->input('days', 30); // horizon en jours
 
         $reminders = DB::table('reminders')
@@ -61,7 +61,7 @@ class ReminderController extends Controller
     // ─────────────────────────────────────────────
     public function store(Request $request): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
 
         $validated = $request->validate([
             'type'               => 'required|in:expiration_assurance,expiration_visite_technique,expiration_permis,vidange,entretien,controle_pneus,controle_batterie,revision,personnalise',
@@ -104,7 +104,7 @@ class ReminderController extends Controller
     // ─────────────────────────────────────────────
     public function show(Request $request, int $id): JsonResponse
     {
-        $reminder = $this->findUserReminder($request->user()->id_user_carbu, $id);
+        $reminder = $this->findUserReminder($request->idUser, $id);
 
         if (!$reminder) {
             return response()->json(['success' => false, 'message' => 'Rappel introuvable.'], 404);
@@ -119,7 +119,7 @@ class ReminderController extends Controller
     // ─────────────────────────────────────────────
     public function update(Request $request, int $id): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
 
         if (!$this->findUserReminder($userId, $id)) {
             return response()->json(['success' => false, 'message' => 'Rappel introuvable.'], 404);
@@ -149,7 +149,7 @@ class ReminderController extends Controller
     // ─────────────────────────────────────────────
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
 
         if (!$this->findUserReminder($userId, $id)) {
             return response()->json(['success' => false, 'message' => 'Rappel introuvable.'], 404);
@@ -166,7 +166,7 @@ class ReminderController extends Controller
     // ─────────────────────────────────────────────
     public function dismiss(Request $request, int $id): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
 
         if (!$this->findUserReminder($userId, $id)) {
             return response()->json(['success' => false, 'message' => 'Rappel introuvable.'], 404);

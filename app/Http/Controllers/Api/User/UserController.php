@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\User;
 
 use App\Http\Controllers\Controller;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -14,17 +15,23 @@ class UserController extends Controller
     // PROFILE — Profil complet
     // GET /connecte/user/profile
     // ─────────────────────────────────────────────
-    public function profile(Request $request): JsonResponse
+    public function profile($id): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
-
         $user = DB::table('users_carbur')
-            ->where('id_user_carbu', $userId)
+            ->where('id_user_carbu', $id)
             ->whereNull('deleted_at')
             ->first([
-                'id_user_carbu', 'name', 'email', 'phone', 'city',
-                'avatar_url', 'subscription_type', 'subscription_expires_at',
-                'is_active', 'last_login_at', 'created_at',
+                'id_user_carbu',
+                'name',
+                'email',
+                'phone',
+                'city',
+                'avatar_url',
+                'subscription_type',
+                'subscription_expires_at',
+                'is_active',
+                'last_login_at',
+                'created_at',
             ]);
 
         if (!$user) {
@@ -32,8 +39,8 @@ class UserController extends Controller
         }
 
         // Statistiques rapides
-        $vehicleCount  = DB::table('vehicles')->where('user_id', $userId)->whereNull('deleted_at')->count();
-        $reminderCount = DB::table('reminders')->where('user_id', $userId)->where('is_dismissed', false)->count();
+        $vehicleCount  = DB::table('vehicles')->where('user_id', $id)->whereNull('deleted_at')->count();
+        $reminderCount = DB::table('reminders')->where('user_id', $id)->where('is_dismissed', false)->count();
 
         return response()->json([
             'success' => true,
@@ -50,7 +57,7 @@ class UserController extends Controller
     // ─────────────────────────────────────────────
     public function update(Request $request): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
 
         $validated = $request->validate([
             'name'  => 'sometimes|string|max:100',
@@ -79,16 +86,26 @@ class UserController extends Controller
             'avatar' => 'required|image|mimes:jpeg,png,jpg,webp|max:2048',
         ]);
 
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
 
         // Supprimer l'ancien avatar si existant
         $current = DB::table('users_carbur')->where('id_user_carbu', $userId)->value('avatar_url');
         if ($current) {
-            Storage::disk('public')->delete(str_replace('/storage/', '', $current));
+
+            $oldPath = public_path(parse_url($current, PHP_URL_PATH));
+
+            if (file_exists($oldPath)) {
+                unlink($oldPath);
+            }
         }
 
-        $path      = $request->file('avatar')->store('avatars', 'public');
-        $avatarUrl = '/storage/' . $path;
+        $timestamp = Carbon::now()->format('Ymd_His');
+
+        $file = $request->file('avatar');
+        $name = 'goutilisateur_' . $timestamp . '.' . $file->getClientOriginalExtension();
+        $file->move(public_path('assurances'), $name);
+
+        $avatarUrl = url('gocarbu/public/goutilisateur/' . $name);
 
         DB::table('users_carbur')
             ->where('id_user_carbu', $userId)
@@ -106,7 +123,7 @@ class UserController extends Controller
         $request->validate(['fcm_token' => 'required|string|max:255']);
 
         DB::table('users_carbur')
-            ->where('id_user_carbu', $request->user()->id_user_carbu)
+            ->where('id_user_carbu', $request->idUser)
             ->update(['fcm_token' => $request->fcm_token, 'updated_at' => now()]);
 
         return response()->json(['success' => true, 'message' => 'Token FCM enregistré.']);
@@ -116,15 +133,15 @@ class UserController extends Controller
     // DELETE ACCOUNT — Supprimer son compte
     // DELETE /connecte/user/account
     // ─────────────────────────────────────────────
-    public function deleteAccount(Request $request): JsonResponse
+    public function deleteAccount($id): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $id;
 
         // Révoquer tous les tokens Sanctum
-        DB::table('personal_access_tokens')
-            ->where('tokenable_type', 'App\Models\UserCarbur')
-            ->where('tokenable_id', $userId)
-            ->delete();
+        // DB::table('personal_access_tokens')
+        //     ->where('tokenable_type', 'App\Models\UserCarbur')
+        //     ->where('tokenable_id', $userId)
+        //     ->delete();
 
         // Soft delete du compte
         DB::table('users_carbur')
@@ -138,9 +155,9 @@ class UserController extends Controller
     // SUBSCRIPTION — Abonnement actuel
     // GET /connecte/user/subscription
     // ─────────────────────────────────────────────
-    public function subscription(Request $request): JsonResponse
+    public function subscription($id): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $id;
 
         $subscription = DB::table('subscriptions')
             ->where('subscribable_type', 'App\Models\UserCarbur')

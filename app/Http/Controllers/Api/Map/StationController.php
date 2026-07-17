@@ -52,8 +52,8 @@ class StationController extends Controller
         if ($lat && $lng) {
             $h = $this->haversine($lat, $lng);
             $query->selectRaw("*, ($h) AS distance")
-                  ->havingRaw('distance <= ?', [$radius])
-                  ->orderBy('distance');
+                ->havingRaw('distance <= ?', [$radius])
+                ->orderBy('distance');
         } else {
             $query->select('*');
             match ($request->input('sort', 'name')) {
@@ -100,11 +100,56 @@ class StationController extends Controller
             ->limit($limit)
             ->get();
 
-        return response()->json([
-            'success' => true,
-            'data'    => $stations,
-            'meta'    => ['lat' => $lat, 'lng' => $lng, 'radius' => $radius, 'unit' => 'km'],
-        ]);
+        $result = $stations->map(function ($station) {
+            $prices = DB::table('fuel_prices')->where('station_id', $station->id_station)->get();
+            $services = DB::table('station_services')->where('station_id', $station->id_station)->get();
+            $compagny = DB::table('station_owners')->where('id_station_owner', $station->owner_id)->first('company_name');
+
+            return [
+                'id'=> $station->id_station,
+                'name'=> $station->name,
+                'compagny'=> $compagny->company_name,
+                'address'=> $station->address ?? '',
+                'city'=> $station->city,
+                'country'=> $station->country,
+                'latitude'=> $station->latitude,
+                'longitude'=> $station->longitude,
+                'phone'=> $station->phone ?? '',
+                'whatsapp'=> $station->whatsapp ?? '',
+                'logo_url'=> $station->logo_url ?? '',
+                'photos'=> $station->photos ?? '',
+                'opens_at'=> $station->opens_at ?? '',
+                'closes_at'=> $station->closes_at ?? '',
+                'is_open_24h'=> $station->is_open_24h,
+                'is_verified'=> $station->is_verified,
+                'subscription_type'=> $station->subscription_type,
+                'subscription_expires_at'=> $station->subscription_expires_at ?? '',
+                'views_count'=> $station->views_count,
+                'is_active'=> $station->is_active,
+                'description'=> $station->description ?? '',
+                'distance'=> $station->distance,
+
+                'prices' => $prices->map(fn($p) => [
+                    'id'                   => $p->id_fuel_price,
+                    'type'                 => $p->fuel_type,
+                    'price'          => $p->price,
+                    'is_available' => $p->is_available,
+                    'updated_at_price' => $p->updated_at_price,
+                ])->values(),
+
+                'services' => $services->map(fn($s) => [
+                    'id'                   => $s->id_sta_service,
+                    'service'                 => $s->service,
+                ])->values(),
+            ];
+        });
+
+        return response()->json($result);
+        
+        // return response()->json([
+        //     $result,
+        //     'meta'    => ['lat' => $lat, 'lng' => $lng, 'radius' => $radius, 'unit' => 'km'],
+        // ]);
     }
 
     // ─────────────────────────────────────────────
@@ -145,7 +190,7 @@ class StationController extends Controller
         if ($lat && $lng) {
             $h = $this->haversine($lat, $lng, 'stations');
             $query->selectRaw("stations.*, fuel_prices.fuel_type, fuel_prices.price, ($h) AS distance")
-                  ->havingRaw('distance <= ?', [$radius]);
+                ->havingRaw('distance <= ?', [$radius]);
         }
 
         return response()->json([

@@ -12,22 +12,55 @@
             <li><a class="nav-link-item {{ Route::is('users.*') ? 'active' : '' }}" href="{{ url('users') }}"
                     data-page="users"><i class="fa-solid fa-users"></i>
                     Utilisateurs <span class="nav-badge">1 248</span></a></li>
-            <li><a class="nav-link-item {{ Route::is('notifications.*') ? 'active' : '' }}" href="{{ url('notifications') }}" data-page="notifications"><i
-                        class="fa-solid fa-bell"></i> Notifications <span class="nav-badge">5</span></a></li>
+            <li><a class="nav-link-item {{ Route::is('notifications.*') ? 'active' : '' }}"
+                    href="{{ url('notifications') }}" data-page="notifications"><i class="fa-solid fa-bell"></i>
+                    Notifications <span class="nav-badge">5</span></a></li>
+        </ul>
+    </div>
+
+    <div class="sidebar-section">
+        <div class="sidebar-section-label">Partenaires — Stations</div>
+        <ul class="sidebar-nav">
+            <li><a class="nav-link-item {{ Route::is('stations.*') ? 'active' : '' }}" href="{{ url('stations') }}"
+                    data-page="stations"><i class="fa-solid fa-gas-pump"></i> Stations-service</a></li>
+            <li><a class="nav-link-item {{ Route::is('owners.*') ? 'active' : '' }}" href="{{ url('owners') }}"
+                    data-page="owners"><i class="fa-solid fa-user-tie"></i> Propriétaires</a></li>
+            <li><a class="nav-link-item {{ Route::is('team-assignments.*') ? 'active' : '' }}"
+                    href="{{ url('team-assignments') }}" data-page="team-assignments"><i class="fa-solid fa-users"></i>
+                    Affectations équipe</a></li>
+            <li><a class="nav-link-item {{ Route::is('station-services.*') ? 'active' : '' }}"
+                    href="{{ url('station-services') }}" data-page="station-services"><i
+                        class="fa-solid fa-list-check"></i> Services stations</a></li>
+        </ul>
+    </div>
+
+    <div class="sidebar-section">
+        <div class="sidebar-section-label">Partenaires — Garages</div>
+        <ul class="sidebar-nav">
+            <li><a class="nav-link-item {{ Route::is('garages.*') ? 'active' : '' }}" href="{{ url('garages') }}"
+                    data-page="garages"><i class="fa-solid fa-wrench"></i> Garages & Services</a></li>
+            <li><a class="nav-link-item {{ Route::is('garage-owners.*') ? 'active' : '' }}"
+                    href="{{ url('garage-owners') }}" data-page="garage-owners"><i class="fa-solid fa-user-tie"></i>
+                    Propriétaires garages</a></li>
+            <li><a class="nav-link-item {{ Route::is('garage-team-assignments.*') ? 'active' : '' }}"
+                    href="{{ url('garage-team-assignments') }}" data-page="garage-team-assignments"><i
+                        class="fa-solid fa-users"></i> Affectations équipe</a></li>
+            <li><a class="nav-link-item {{ Route::is('garage-services.*') ? 'active' : '' }}"
+                    href="{{ url('garage-services') }}" data-page="garage-services"><i
+                        class="fa-solid fa-list-check"></i> Services garages</a></li>
         </ul>
     </div>
 
     <div class="sidebar-section">
         <div class="sidebar-section-label">Partenaires</div>
         <ul class="sidebar-nav">
-            <li><a class="nav-link-item {{ Route::is('stations.*') ? 'active' : '' }}" href="{{ url('stations') }}"
-                    data-page="stations"><i class="fa-solid fa-gas-pump"></i> Stations-service</a></li>
-            <li><a class="nav-link-item {{ Route::is('garages.*') ? 'active' : '' }}" href="{{ url('garages') }}"
-                    data-page="garages"><i class="fa-solid fa-wrench"></i> Garages & Services</a></li>
             <li><a class="nav-link-item {{ Route::is('partner-requests.*') ? 'active' : '' }}"
                     href="{{ url('partner-requests') }}" data-page="partner-requests"><i
-                        class="fa-solid fa-handshake"></i> Demandes partenaires <span class="nav-badge"
-                        style="background:#F59E0B">8</span></a></li>
+                        class="fa-solid fa-handshake"></i> Demandes partenaires
+                    @if (($pendingPartnerRequests ?? 0) > 0)
+                        <span class="nav-badge" style="background:#F59E0B">{{ $pendingPartnerRequests }}</span>
+                    @endif
+                </a></li>
         </ul>
     </div>
 
@@ -64,7 +97,8 @@
             <li><a class="nav-link-item {{ Route::is('settings.*') ? 'active' : '' }}" href="{{ url('settings') }}"
                     data-page="settings"><i class="fa-solid fa-sliders"></i> Paramètres</a></li>
             <li><a class="nav-link-item {{ Route::is('activity-logs.*') ? 'active' : '' }}"
-                    href="{{ url('activity-logs') }}" data-page="logs"><i class="fa-solid fa-list-check"></i> Journaux
+                    href="{{ url('activity-logs') }}" data-page="logs"><i class="fa-solid fa-list-check"></i>
+                    Journaux
                     d'activité</a></li>
             <li><a class="nav-link-item {{ Route::is('app-versions.*') ? 'active' : '' }}"
                     href="{{ url('app-versions') }}" data-page="versions"><i class="fa-solid fa-mobile-screen"></i>

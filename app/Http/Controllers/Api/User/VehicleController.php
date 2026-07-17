@@ -14,9 +14,9 @@ class VehicleController extends Controller
     // INDEX — Mes véhicules
     // GET /connecte/vehicles
     // ─────────────────────────────────────────────
-    public function index(Request $request): JsonResponse
+    public function index($id): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $id;
 
         $vehicles = DB::table('vehicles')
             ->where('user_id', $userId)
@@ -34,7 +34,7 @@ class VehicleController extends Controller
     // ─────────────────────────────────────────────
     public function store(Request $request): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->id;
 
         $validated = $request->validate([
             'brand'        => 'required|string|max:100',
@@ -65,9 +65,9 @@ class VehicleController extends Controller
     // SHOW — Détail d'un véhicule
     // GET /connecte/vehicles/{id}
     // ─────────────────────────────────────────────
-    public function show(Request $request, int $id): JsonResponse
+    public function show($idUser, int $id): JsonResponse
     {
-        $vehicle = $this->findUserVehicle($request->user()->id_user_carbu, $id);
+        $vehicle = $this->findUserVehicle($idUser, $id);
 
         if (!$vehicle) {
             return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
@@ -100,7 +100,7 @@ class VehicleController extends Controller
     // ─────────────────────────────────────────────
     public function update(Request $request, int $id): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
 
         if (!$this->findUserVehicle($userId, $id)) {
             return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
@@ -129,9 +129,9 @@ class VehicleController extends Controller
     // DESTROY — Supprimer un véhicule
     // DELETE /connecte/vehicles/{id}
     // ─────────────────────────────────────────────
-    public function destroy(Request $request, int $id): JsonResponse
+    public function destroy($idUser, int $id): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $idUser;
 
         if (!$this->findUserVehicle($userId, $id)) {
             return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
@@ -162,9 +162,9 @@ class VehicleController extends Controller
     // SET PRIMARY — Véhicule principal
     // PATCH /connecte/vehicles/{id}/set-primary
     // ─────────────────────────────────────────────
-    public function setPrimary(Request $request, int $id): JsonResponse
+    public function setPrimary($idUser, int $id): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $idUser;
 
         if (!$this->findUserVehicle($userId, $id)) {
             return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);

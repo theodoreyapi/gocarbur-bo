@@ -59,10 +59,10 @@ class PromotionController extends Controller
             $query->where(function ($q) use ($nearbyStationIds, $nearbyGarageIds) {
                 $q->where(function ($q2) use ($nearbyStationIds) {
                     $q2->where('promotable_type', 'App\Models\Station')
-                       ->whereIn('promotable_id', $nearbyStationIds);
+                        ->whereIn('promotable_id', $nearbyStationIds);
                 })->orWhere(function ($q2) use ($nearbyGarageIds) {
                     $q2->where('promotable_type', 'App\Models\Garage')
-                       ->whereIn('promotable_id', $nearbyGarageIds);
+                        ->whereIn('promotable_id', $nearbyGarageIds);
                 });
             });
         }

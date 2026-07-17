@@ -20,10 +20,10 @@ class ProStationController extends Controller
     // ─────────────────────────────────────────────
     public function index(Request $request): JsonResponse
     {
-        $ownerId = $request->user()->id_station_owner;
+        $ownerId = $request->idOwner;
 
         $stationIds = DB::table('station_owner_station')
-            ->where('station_owner_id', $ownerId)
+            ->where('owner_id', $ownerId)
             ->pluck('station_id');
 
         $stations = DB::table('stations')
@@ -41,7 +41,7 @@ class ProStationController extends Controller
     // ─────────────────────────────────────────────
     public function show(Request $request, int $id): JsonResponse
     {
-        $station = $this->findOwnerStation($request->user()->id_station_owner, $id);
+        $station = $this->findOwnerStation($request->idOwner, $id);
 
         if (!$station) {
             return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
@@ -86,7 +86,7 @@ class ProStationController extends Controller
     // ─────────────────────────────────────────────
     public function update(Request $request, int $id): JsonResponse
     {
-        $ownerId = $request->user()->id_station_owner;
+        $ownerId = $request->idOwner;
 
         if (!$this->findOwnerStation($ownerId, $id)) {
             return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
@@ -117,7 +117,7 @@ class ProStationController extends Controller
     // ─────────────────────────────────────────────
     public function uploadPhotos(Request $request, int $id): JsonResponse
     {
-        if (!$this->findOwnerStation($request->user()->id_station_owner, $id)) {
+        if (!$this->findOwnerStation($request->idOwner, $id)) {
             return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
         }
 
@@ -154,7 +154,7 @@ class ProStationController extends Controller
     // ─────────────────────────────────────────────
     public function deletePhoto(Request $request, int $id, int $photoIndex): JsonResponse
     {
-        if (!$this->findOwnerStation($request->user()->id_station_owner, $id)) {
+        if (!$this->findOwnerStation($request->idOwner, $id)) {
             return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
         }
 
@@ -185,7 +185,7 @@ class ProStationController extends Controller
     // ─────────────────────────────────────────────
     public function updateServices(Request $request, int $id): JsonResponse
     {
-        if (!$this->findOwnerStation($request->user()->id_station_owner, $id)) {
+        if (!$this->findOwnerStation($request->idOwner, $id)) {
             return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
         }
 
@@ -218,7 +218,7 @@ class ProStationController extends Controller
     // ─────────────────────────────────────────────
     public function updateHours(Request $request, int $id): JsonResponse
     {
-        if (!$this->findOwnerStation($request->user()->id_station_owner, $id)) {
+        if (!$this->findOwnerStation($request->idOwner, $id)) {
             return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
         }
 
@@ -246,7 +246,7 @@ class ProStationController extends Controller
     private function findOwnerStation(int $ownerId, int $stationId): ?object
     {
         $linked = DB::table('station_owner_station')
-            ->where('station_owner_id', $ownerId)
+            ->where('owner_id', $ownerId)
             ->where('station_id', $stationId)
             ->exists();
 

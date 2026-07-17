@@ -17,10 +17,10 @@
             <div class="avatar-btn" data-toggle="dropdown">SA</div>
             <div class="dropdown-menu">
                 <a class="dropdown-item" href="#"><i class="fa-solid fa-user"></i> Mon profil</a>
-                <a class="dropdown-item" href="pages/settings.html"><i class="fa-solid fa-sliders"></i>
+                <a class="dropdown-item" href="{{ url('settings') }}"><i class="fa-solid fa-sliders"></i>
                     Paramètres</a>
                 <div class="dropdown-divider"></div>
-                <a class="dropdown-item text-danger" href="pages/login.html"><i
+                <a class="dropdown-item text-danger" href="{{ url('/') }}"><i
                         class="fa-solid fa-right-from-bracket"></i> Déconnexion</a>
             </div>
         </div>

@@ -18,13 +18,13 @@ class ProStatsController extends Controller
     // ─────────────────────────────────────────────
     public function overview(Request $request): JsonResponse
     {
-        $user      = $request->user();
+        $user      = $request;
         $isStation = isset($user->id_station_owner);
         $monthStart = now()->startOfMonth()->toDateTimeString();
 
         if ($isStation) {
             $entityIds = DB::table('station_owner_station')
-                ->where('station_owner_id', $user->id_station_owner)
+                ->where('owner_id', $user->id_station_owner)
                 ->pluck('station_id');
 
             $stats = DB::table('station_views')
@@ -49,7 +49,7 @@ class ProStatsController extends Controller
 
         } else {
             $entityIds = DB::table('garage_owner_garage')
-                ->where('garage_owner_id', $user->id_gara_owner)
+                ->where('owner_id', $user->id_gara_owner)
                 ->pluck('garage_id');
 
             $stats = DB::table('garage_views')
@@ -101,9 +101,9 @@ class ProStatsController extends Controller
     // ─────────────────────────────────────────────
     public function station(Request $request, int $id): JsonResponse
     {
-        $ownerId = $request->user()->id_station_owner;
+        $ownerId = $request->idOwner;
 
-        if (!DB::table('station_owner_station')->where('station_owner_id', $ownerId)->where('station_id', $id)->exists()) {
+        if (!DB::table('station_owner_station')->where('owner_id', $ownerId)->where('station_id', $id)->exists()) {
             return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
         }
 
@@ -149,9 +149,9 @@ class ProStatsController extends Controller
     // ─────────────────────────────────────────────
     public function garage(Request $request, int $id): JsonResponse
     {
-        $ownerId = $request->user()->id_gara_owner;
+        $ownerId = $request->idOwner;
 
-        if (!DB::table('garage_owner_garage')->where('garage_owner_id', $ownerId)->where('garage_id', $id)->exists()) {
+        if (!DB::table('garage_owner_garage')->where('owner_id', $ownerId)->where('garage_id', $id)->exists()) {
             return response()->json(['success' => false, 'message' => 'Garage introuvable.'], 404);
         }
 
@@ -200,7 +200,7 @@ class ProStatsController extends Controller
     {
         $request->validate(['period' => 'nullable|in:week,month,year']);
 
-        $user      = $request->user();
+        $user      = $request;
         $isStation = isset($user->id_station_owner);
         $period    = $request->input('period', 'month');
 
@@ -216,11 +216,11 @@ class ProStatsController extends Controller
         };
 
         if ($isStation) {
-            $entityIds  = DB::table('station_owner_station')->where('station_owner_id', $user->id_station_owner)->pluck('station_id');
+            $entityIds  = DB::table('station_owner_station')->where('owner_id', $user->id_station_owner)->pluck('station_id');
             $viewTable  = 'station_views';
             $entityFk   = 'station_id';
         } else {
-            $entityIds  = DB::table('garage_owner_garage')->where('garage_owner_id', $user->id_gara_owner)->pluck('garage_id');
+            $entityIds  = DB::table('garage_owner_garage')->where('owner_id', $user->id_garage_owner)->pluck('garage_id');
             $viewTable  = 'garage_views';
             $entityFk   = 'garage_id';
         }
@@ -242,16 +242,16 @@ class ProStatsController extends Controller
     // ─────────────────────────────────────────────
     public function reviews(Request $request): JsonResponse
     {
-        $user      = $request->user();
+        $user      = $request;
         $isStation = isset($user->id_station_owner);
         $limit     = $request->input('limit', 20);
         $page      = max(1, (int) $request->input('page', 1));
 
         if ($isStation) {
-            $entityIds       = DB::table('station_owner_station')->where('station_owner_id', $user->id_station_owner)->pluck('station_id');
+            $entityIds       = DB::table('station_owner_station')->where('owner_id', $user->id_station_owner)->pluck('station_id');
             $reviewableType  = 'App\Models\Station';
         } else {
-            $entityIds       = DB::table('garage_owner_garage')->where('garage_owner_id', $user->id_gara_owner)->pluck('garage_id');
+            $entityIds       = DB::table('garage_owner_garage')->where('owner_id', $user->id_garage_owner)->pluck('garage_id');
             $reviewableType  = 'App\Models\Garage';
         }
 

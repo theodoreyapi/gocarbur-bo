@@ -14,6 +14,7 @@ class Garage extends Model
     use SoftDeletes;
 
     protected $table      = 'garages';
+
     protected $primaryKey = 'id_garage';
 
     protected $fillable = [
@@ -39,17 +40,15 @@ class Garage extends Model
         'description',
         'rating',
         'rating_count',
+        'owner_id',
     ];
 
     protected $casts = [
-        'photos'                  => 'array',
-        'is_open_24h'             => 'boolean',
-        'is_verified'             => 'boolean',
-        'is_active'               => 'boolean',
-        'subscription_expires_at' => 'datetime',
-        'latitude'                => 'float',
-        'longitude'               => 'float',
-        'rating'                  => 'float',
+        'photos' => 'array',
+        'is_open_24h' => 'boolean',
+        'is_verified' => 'boolean',
+        'is_active' => 'boolean',
+        'rating' => 'decimal:2',
     ];
 
     public function services(): HasMany
@@ -84,4 +83,23 @@ class Garage extends Model
             ->where('status', 'active')
             ->latest('starts_at');
     }
+
+    public function owner()
+    {
+        return $this->belongsTo(GarageOwner::class, 'owner_id', 'id_gara_owner');
+    }
+
+    // Équipe (owner/manager/employee) via la table pivot garage_owner_garage
+    public function team()
+    {
+        return $this->belongsToMany(
+            GarageOwner::class,
+            'garage_owner_garage',
+            'garage_id',
+            'owner_id',
+            'id_garage',
+            'id_gara_owner'
+        )->withPivot('id_gara_owner_gara', 'role')->withTimestamps();
+    }
+
 }

@@ -17,7 +17,7 @@ class FuelLogController extends Controller
     // ─────────────────────────────────────────────
     public function index(Request $request, int $vehicleId): JsonResponse
     {
-        if (!$this->vehicleBelongsToUser($request->user()->id_user_carbu, $vehicleId)) {
+        if (!$this->vehicleBelongsToUser($request->idUser, $vehicleId)) {
             return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
         }
 
@@ -44,7 +44,7 @@ class FuelLogController extends Controller
     // ─────────────────────────────────────────────
     public function store(Request $request, int $vehicleId): JsonResponse
     {
-        if (!$this->vehicleBelongsToUser($request->user()->id_user_carbu, $vehicleId)) {
+        if (!$this->vehicleBelongsToUser($request->idUser, $vehicleId)) {
             return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
         }
 
@@ -86,7 +86,7 @@ class FuelLogController extends Controller
     // ─────────────────────────────────────────────
     public function stats(Request $request, int $vehicleId): JsonResponse
     {
-        $user = $request->user();
+        $user = DB::table('user_carbur')->where('id_user_carbu', $request->idUser)->first() ;
 
         // Vérification abonnement premium
         if ($user->subscription_type !== 'premium') {
@@ -163,7 +163,7 @@ class FuelLogController extends Controller
     // ─────────────────────────────────────────────
     public function show(Request $request, int $vehicleId, int $id): JsonResponse
     {
-        if (!$this->vehicleBelongsToUser($request->user()->id_user_carbu, $vehicleId)) {
+        if (!$this->vehicleBelongsToUser($request->idUser, $vehicleId)) {
             return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
         }
 
@@ -185,7 +185,7 @@ class FuelLogController extends Controller
     // ─────────────────────────────────────────────
     public function update(Request $request, int $vehicleId, int $id): JsonResponse
     {
-        if (!$this->vehicleBelongsToUser($request->user()->id_user_carbu, $vehicleId)) {
+        if (!$this->vehicleBelongsToUser($request->idUser, $vehicleId)) {
             return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
         }
 
@@ -220,7 +220,7 @@ class FuelLogController extends Controller
     // ─────────────────────────────────────────────
     public function destroy(Request $request, int $vehicleId, int $id): JsonResponse
     {
-        if (!$this->vehicleBelongsToUser($request->user()->id_user_carbu, $vehicleId)) {
+        if (!$this->vehicleBelongsToUser($request->idUser, $vehicleId)) {
             return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
         }
 

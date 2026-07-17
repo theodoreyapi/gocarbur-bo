@@ -16,10 +16,10 @@ class ProGarageController extends Controller
     // ─────────────────────────────────────────────
     public function index(Request $request): JsonResponse
     {
-        $ownerId = $request->user()->id_gara_owner;
+        $ownerId = $request->idOwner;
 
         $garageIds = DB::table('garage_owner_garage')
-            ->where('garage_owner_id', $ownerId)
+            ->where('owner_id', $ownerId)
             ->pluck('garage_id');
 
         $garages = DB::table('garages')
@@ -37,7 +37,7 @@ class ProGarageController extends Controller
     // ─────────────────────────────────────────────
     public function show(Request $request, int $id): JsonResponse
     {
-        $garage = $this->findOwnerGarage($request->user()->id_gara_owner, $id);
+        $garage = $this->findOwnerGarage($request->idOwner, $id);
 
         if (!$garage) {
             return response()->json(['success' => false, 'message' => 'Garage introuvable.'], 404);
@@ -93,7 +93,7 @@ class ProGarageController extends Controller
     // ─────────────────────────────────────────────
     public function update(Request $request, int $id): JsonResponse
     {
-        if (!$this->findOwnerGarage($request->user()->id_gara_owner, $id)) {
+        if (!$this->findOwnerGarage($request->idOwner, $id)) {
             return response()->json(['success' => false, 'message' => 'Garage introuvable.'], 404);
         }
 
@@ -122,7 +122,7 @@ class ProGarageController extends Controller
     // ─────────────────────────────────────────────
     public function uploadPhotos(Request $request, int $id): JsonResponse
     {
-        if (!$this->findOwnerGarage($request->user()->id_gara_owner, $id)) {
+        if (!$this->findOwnerGarage($request->idOwner, $id)) {
             return response()->json(['success' => false, 'message' => 'Garage introuvable.'], 404);
         }
 
@@ -159,7 +159,7 @@ class ProGarageController extends Controller
     // ─────────────────────────────────────────────
     public function deletePhoto(Request $request, int $id, int $photoIndex): JsonResponse
     {
-        if (!$this->findOwnerGarage($request->user()->id_gara_owner, $id)) {
+        if (!$this->findOwnerGarage($request->idOwner, $id)) {
             return response()->json(['success' => false, 'message' => 'Garage introuvable.'], 404);
         }
 
@@ -187,19 +187,19 @@ class ProGarageController extends Controller
     // ─────────────────────────────────────────────
     public function updateServices(Request $request, int $id): JsonResponse
     {
-        if (!$this->findOwnerGarage($request->user()->id_gara_owner, $id)) {
+        if (!$this->findOwnerGarage($request->idOwner, $id)) {
             return response()->json(['success' => false, 'message' => 'Garage introuvable.'], 404);
         }
 
         $validated = $request->validate([
             'services'              => 'required|array',
             'services.*.service'    => 'required|string|in:vidange,freins,pneus,batterie,climatisation,electricite,carrosserie,vitrage,courroie_distribution,amortisseurs,echappement,revision_complete,diagnostic_electronique,depannage_route,remorquage,lavage_interieur,lavage_exterieur,polissage',
-            'services.*.price_range'=> 'nullable|string|max:100',
+            'services.*.price_range' => 'nullable|string|max:100',
         ]);
 
         DB::table('garage_services')->where('garage_id', $id)->delete();
 
-        $rows = array_map(fn ($svc) => [
+        $rows = array_map(fn($svc) => [
             'garage_id'   => $id,
             'service'     => $svc['service'],
             'price_range' => $svc['price_range'] ?? null,
@@ -220,7 +220,7 @@ class ProGarageController extends Controller
     // ─────────────────────────────────────────────
     public function updateHours(Request $request, int $id): JsonResponse
     {
-        if (!$this->findOwnerGarage($request->user()->id_gara_owner, $id)) {
+        if (!$this->findOwnerGarage($request->idOwner, $id)) {
             return response()->json(['success' => false, 'message' => 'Garage introuvable.'], 404);
         }
 
@@ -248,7 +248,7 @@ class ProGarageController extends Controller
     private function findOwnerGarage(int $ownerId, int $garageId): ?object
     {
         $linked = DB::table('garage_owner_garage')
-            ->where('garage_owner_id', $ownerId)
+            ->where('owner_id', $ownerId)
             ->where('garage_id', $garageId)
             ->exists();
 

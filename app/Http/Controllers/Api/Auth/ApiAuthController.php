@@ -49,15 +49,10 @@ class ApiAuthController extends Controller
             'is_active' => true,
         ]);
 
-        $token = $user->createToken('auth_token')->plainTextToken;
-
         return response()->json([
             'success' => true,
             'message' => 'Compte créé avec succès.',
-            'data'    => [
-                'user'  => $this->formatUser($user),
-                'token' => $token,
-            ],
+            'data'    => $this->formatUser($user),
         ], 201);
     }
 
@@ -102,20 +97,12 @@ class ApiAuthController extends Controller
             ], 403);
         }
 
-        // Révoquer les anciens tokens si vous préférez la politique « un seul token »
-        // $user->tokens()->delete();
-
         $user->update(['last_login_at' => now()]);
-
-        $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([
             'success' => true,
             'message' => 'Connexion réussie.',
-            'data'    => [
-                'user'  => $this->formatUser($user),
-                'token' => $token,
-            ],
+            'data'    => $this->formatUser($user),
         ]);
     }
 
@@ -150,7 +137,7 @@ class ApiAuthController extends Controller
             // Stocker l'OTP en cache pendant 10 minutes (clé unique par email)
             Cache::put("otp:email:{$identifier}", $otp, now()->addMinutes(10));
 
-            // TODO : envoyer l'email avec $otp (Mail::to($identifier)->send(...))
+            // envoyer l'email avec $otp (Mail::to($identifier)->send(...))
             Log::info("OTP email [{$otp}] envoyé à {$identifier}");
 
         } else {
@@ -159,7 +146,7 @@ class ApiAuthController extends Controller
             // Stocker l'OTP en cache pendant 10 minutes (clé unique par téléphone)
             Cache::put("otp:phone:{$identifier}", $otp, now()->addMinutes(10));
 
-            // TODO : envoyer le WhatsApp avec $otp (via Twilio, Meta API, etc.)
+            // envoyer le WhatsApp avec $otp (via Twilio, Meta API, etc.)
             Log::info("OTP whatsapp [{$otp}] envoyé à {$identifier}");
         }
 
@@ -239,15 +226,10 @@ class ApiAuthController extends Controller
 
         $user->update(['last_login_at' => now()]);
 
-        $token = $user->createToken('auth_token')->plainTextToken;
-
         return response()->json([
             'success' => true,
             'message' => 'OTP vérifié. Connexion réussie.',
-            'data'    => [
-                'user'  => $this->formatUser($user),
-                'token' => $token,
-            ],
+            'data'    => $this->formatUser($user),
         ]);
     }
 

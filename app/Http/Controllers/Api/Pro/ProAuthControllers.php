@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 // ═══════════════════════════════════════════════════════════════
@@ -86,18 +87,18 @@ class ProAuthController extends Controller
 
         // Token Sanctum avec guard spécifique
         // Note : nécessite que StationOwner/GarageOwner utilisent HasApiTokens
-        $guardModel = $request->type === 'station'
-            ? StationOwner::find($owner->$pk)
-            : GarageOwner::find($owner->$pk);
+        // $guardModel = $request->type === 'station'
+        //     ? StationOwner::find($owner->$pk)
+        //     : GarageOwner::find($owner->$pk);
 
-        $token = $guardModel->createToken('pro_token')->plainTextToken;
+        //$token = $guardModel->createToken('pro_token')->plainTextToken;
 
         return response()->json([
             'success' => true,
             'message' => 'Connexion réussie.',
             'data'    => [
                 'owner' => $this->formatOwner($owner, $request->type),
-                'token' => $token,
+               // 'token' => $token,
                 'type'  => $request->type,
             ],
         ]);
@@ -131,7 +132,7 @@ class ProAuthController extends Controller
         );
 
         // TODO : Mail::to($owner->email)->send(new ProPasswordResetMail($token, $request->type))
-        \Illuminate\Support\Facades\Log::info("Reset token pro [{$token}] pour {$request->email}");
+        Log::info("Reset token pro [{$token}] pour {$request->email}");
 
         return response()->json(['success' => true, 'message' => 'Si ce compte existe, un email a été envoyé.']);
     }

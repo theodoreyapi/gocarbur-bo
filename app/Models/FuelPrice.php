@@ -6,8 +6,18 @@ use Illuminate\Database\Eloquent\Model;
 
 class FuelPrice extends Model
 {
-    protected $fillable = ['station_id', 'fuel_type', 'price', 'is_available', 'updated_at_price'];
-    protected $casts = ['is_available' => 'boolean', 'price' => 'decimal:2', 'updated_at_price' => 'datetime'];
+    protected $primaryKey = 'id_fuel_price';
 
-    public function station() { return $this->belongsTo(Station::class); }
+    protected $fillable = ['fuel_type', 'price', 'is_available', 'updated_at_price', 'station_id'];
+
+    protected $casts = [
+        'is_available' => 'boolean',
+        'updated_at_price' => 'datetime',
+        'price' => 'decimal:2',
+    ];
+
+    public function station()
+    {
+        return $this->belongsTo(Station::class, 'station_id', 'id_station');
+    }
 }

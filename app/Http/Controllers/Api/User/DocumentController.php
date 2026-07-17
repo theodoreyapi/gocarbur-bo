@@ -14,11 +14,11 @@ class DocumentController extends Controller
 {
     // ─────────────────────────────────────────────
     // INDEX — Lister les documents d'un véhicule
-    // GET /connecte/vehicles/{vehicleId}/documents
+    // GET /connecte/vehicles/{idUser}/{vehicleId}/documents
     // ─────────────────────────────────────────────
-    public function index(Request $request, int $vehicleId): JsonResponse
+    public function index($idUser, int $vehicleId): JsonResponse
     {
-        if (!$this->vehicleBelongsToUser($request->user()->id_user_carbu, $vehicleId)) {
+        if (!$this->vehicleBelongsToUser($idUser, $vehicleId)) {
             return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
         }
 
@@ -35,9 +35,9 @@ class DocumentController extends Controller
     // STORE — Ajouter un document
     // POST /connecte/vehicles/{vehicleId}/documents
     // ─────────────────────────────────────────────
-    public function store(Request $request, int $vehicleId): JsonResponse
+    public function store(Request $request, $idUser, int $vehicleId): JsonResponse
     {
-        if (!$this->vehicleBelongsToUser($request->user()->id_user_carbu, $vehicleId)) {
+        if (!$this->vehicleBelongsToUser($idUser, $vehicleId)) {
             return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
         }
 
@@ -47,16 +47,16 @@ class DocumentController extends Controller
             'issue_date'  => 'nullable|date',
             'expiry_date' => 'nullable|date|after_or_equal:issue_date',
             'notes'       => 'nullable|string|max:500',
-            'file'        => 'nullable|file|mimes:jpeg,png,jpg,pdf|max:5120',
+            // 'file'        => 'nullable|file|mimes:jpeg,png,jpg,pdf|max:5120',
         ]);
 
-        $fileUrl  = null;
-        $filePath = null;
+        // $fileUrl  = null;
+        // $filePath = null;
 
-        if ($request->hasFile('file')) {
-            $filePath = $request->file('file')->store("documents/{$vehicleId}", 'public');
-            $fileUrl  = '/storage/' . $filePath;
-        }
+        // if ($request->hasFile('file')) {
+        //     $filePath = $request->file('file')->store("documents/{$vehicleId}", 'public');
+        //     $fileUrl  = '/storage/' . $filePath;
+        // }
 
         // Calculer le statut initial
         $status = $this->computeStatus($validated['expiry_date'] ?? null);
@@ -67,8 +67,8 @@ class DocumentController extends Controller
             'number'      => $validated['number'] ?? null,
             'issue_date'  => $validated['issue_date'] ?? null,
             'expiry_date' => $validated['expiry_date'] ?? null,
-            'file_url'    => $fileUrl,
-            'file_path'   => $filePath,
+            // 'file_url'    => $fileUrl,
+            // 'file_path'   => $filePath,
             'status'      => $status,
             'notes'       => $validated['notes'] ?? null,
             'created_at'  => now(),
@@ -84,9 +84,9 @@ class DocumentController extends Controller
     // SHOW — Détail d'un document
     // GET /connecte/vehicles/{vehicleId}/documents/{id}
     // ─────────────────────────────────────────────
-    public function show(Request $request, int $vehicleId, int $id): JsonResponse
+    public function show($idUser, int $vehicleId, int $id): JsonResponse
     {
-        if (!$this->vehicleBelongsToUser($request->user()->id_user_carbu, $vehicleId)) {
+        if (!$this->vehicleBelongsToUser($idUser, $vehicleId)) {
             return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
         }
 
@@ -107,9 +107,9 @@ class DocumentController extends Controller
     // UPDATE — Modifier un document
     // PUT /connecte/vehicles/{vehicleId}/documents/{id}
     // ─────────────────────────────────────────────
-    public function update(Request $request, int $vehicleId, int $id): JsonResponse
+    public function update(Request $request, $idUser, int $vehicleId, int $id): JsonResponse
     {
-        if (!$this->vehicleBelongsToUser($request->user()->id_user_carbu, $vehicleId)) {
+        if (!$this->vehicleBelongsToUser($idUser, $vehicleId)) {
             return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
         }
 
@@ -146,9 +146,9 @@ class DocumentController extends Controller
     // DESTROY — Supprimer un document
     // DELETE /connecte/vehicles/{vehicleId}/documents/{id}
     // ─────────────────────────────────────────────
-    public function destroy(Request $request, int $vehicleId, int $id): JsonResponse
+    public function destroy($idUser, int $vehicleId, int $id): JsonResponse
     {
-        if (!$this->vehicleBelongsToUser($request->user()->id_user_carbu, $vehicleId)) {
+        if (!$this->vehicleBelongsToUser($idUser, $vehicleId)) {
             return response()->json(['success' => false, 'message' => 'Véhicule introuvable.'], 404);
         }
 

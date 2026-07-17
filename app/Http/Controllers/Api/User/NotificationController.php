@@ -13,7 +13,7 @@ class NotificationController extends Controller
     // GET /connecte/notifications
     public function index(Request $request): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
         $limit  = $request->input('limit', 20);
         $page   = max(1, (int) $request->input('page', 1));
 
@@ -23,7 +23,7 @@ class NotificationController extends Controller
 
         $total = $query->count();
         $items = $query->offset(($page - 1) * $limit)->limit($limit)->get()
-            ->map(fn ($n) => array_merge((array) $n, [
+            ->map(fn($n) => array_merge((array) $n, [
                 'data' => $n->data ? json_decode($n->data, true) : null,
             ]));
 
@@ -38,7 +38,7 @@ class NotificationController extends Controller
     public function unreadCount(Request $request): JsonResponse
     {
         $count = DB::table('notifications')
-            ->where('user_id', $request->user()->id_user_carbu)
+            ->where('user_id', $request->idUser)
             ->where('is_read', false)
             ->count();
 
@@ -48,7 +48,7 @@ class NotificationController extends Controller
     // PATCH /connecte/notifications/{id}/read
     public function markAsRead(Request $request, int $id): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
 
         $exists = DB::table('notifications')
             ->where('id_notification', $id)->where('user_id', $userId)->exists();
@@ -68,7 +68,7 @@ class NotificationController extends Controller
     public function markAllAsRead(Request $request): JsonResponse
     {
         DB::table('notifications')
-            ->where('user_id', $request->user()->id_user_carbu)
+            ->where('user_id', $request->idUser)
             ->where('is_read', false)
             ->update(['is_read' => true, 'read_at' => now()]);
 
@@ -80,7 +80,7 @@ class NotificationController extends Controller
     {
         $deleted = DB::table('notifications')
             ->where('id_notification', $id)
-            ->where('user_id', $request->user()->id_user_carbu)
+            ->where('user_id', $request->idUser)
             ->delete();
 
         if (!$deleted) {
@@ -94,7 +94,7 @@ class NotificationController extends Controller
     public function destroyAll(Request $request): JsonResponse
     {
         DB::table('notifications')
-            ->where('user_id', $request->user()->id_user_carbu)
+            ->where('user_id', $request->idUser)
             ->delete();
 
         return response()->json(['success' => true, 'message' => 'Toutes les notifications supprimées.']);

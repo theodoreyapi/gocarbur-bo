@@ -27,7 +27,7 @@ class ReviewController extends Controller
             'comment' => 'nullable|string|max:1000',
         ]);
 
-        $userId         = $request->user()->id_user_carbu;
+        $userId         = $request->idUser;
         $reviewableType = self::TYPE_MAP[$validated['type']];
         $reviewableId   = $validated['id'];
 
@@ -74,7 +74,7 @@ class ReviewController extends Controller
     // PUT /connecte/reviews/{id}
     public function update(Request $request, int $id): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
 
         $review = DB::table('reviews')
             ->where('id_review', $id)->where('user_id', $userId)->whereNull('deleted_at')->first();
@@ -107,7 +107,7 @@ class ReviewController extends Controller
     // DELETE /connecte/reviews/{id}
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
 
         $review = DB::table('reviews')
             ->where('id_review', $id)->where('user_id', $userId)->whereNull('deleted_at')->first();
@@ -128,7 +128,7 @@ class ReviewController extends Controller
     // GET /connecte/reviews/my
     public function myReviews(Request $request): JsonResponse
     {
-        $userId = $request->user()->id_user_carbu;
+        $userId = $request->idUser;
         $limit  = $request->input('limit', 20);
         $page   = max(1, (int) $request->input('page', 1));
 

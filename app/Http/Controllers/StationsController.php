@@ -3,376 +3,298 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Models\FuelPrice;
+use App\Models\Station;
+use App\Models\StationOwner;
+use App\Models\StationOwnerStation;
+use App\Models\StationService;
 use Illuminate\Http\Request;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\DB;
 
 class StationsController extends Controller
 {
-    // ─────────────────────────────────────────────
-    // INDEX
-    // GET /admin/stations?search=&plan=&city=&status=&verified=&page=
-    // ─────────────────────────────────────────────
     public function index(Request $request)
     {
-        $search   = $request->input('search');
-        $plan     = $request->input('plan');
-        $city     = $request->input('city');
-        $status   = $request->input('status');
+        $search = $request->get('search', '');
+        $plan = $request->get('plan', '');
+        $city = $request->get('city', '');
+        $status = $request->get('status', '');
         $verified = $request->boolean('verified');
-        $limit    = 20;
 
-        // ── KPIs ──────────────────────────────────
-        $kpis = [
-            'total'    => DB::table('stations')->whereNull('deleted_at')->count(),
-            'verified' => DB::table('stations')->whereNull('deleted_at')->where('is_verified', true)->count(),
-            'pro'      => DB::table('stations')->whereNull('deleted_at')->whereIn('subscription_type', ['pro', 'premium'])->count(),
-            'inactive' => DB::table('stations')->whereNull('deleted_at')->where('is_active', false)->count(),
-        ];
-
-        // ── Requête principale ─────────────────────
-        $query = DB::table('stations')->whereNull('deleted_at');
+        $query = Station::query()->with('owner');
 
         if ($search) {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('brand', 'like', "%{$search}%")
-                  ->orWhere('city', 'like', "%{$search}%")
-                  ->orWhere('address', 'like', "%{$search}%");
+                    ->orWhere('city', 'like', "%{$search}%")
+                    ->orWhere('address', 'like', "%{$search}%");
             });
         }
-        if ($plan)              $query->where('subscription_type', $plan);
-        if ($city)              $query->where('city', $city);
-        if ($status === 'active')   $query->where('is_active', true);
-        if ($status === 'inactive') $query->where('is_active', false);
-        if ($verified)          $query->where('is_verified', true);
+        if ($plan) $query->where('subscription_type', $plan);
+        if ($city) $query->where('city', $city);
+        if ($status === 'active') $query->where('is_active', true);
+        elseif ($status === 'inactive') $query->where('is_active', false);
+        if ($verified) $query->where('is_verified', true);
 
-        $total    = $query->count();
-        $stations = $query->orderByDesc('views_count')->paginate($limit)->withQueryString();
+        $stations = $query->orderByDesc('id_station')->paginate(15)->withQueryString();
+        $total = Station::count();
 
-        // Prix essence + gasoil en une requête
         $stationIds = $stations->pluck('id_station');
+        $prices = FuelPrice::whereIn('station_id', $stationIds)->get()->groupBy('station_id');
 
-        $prices = DB::table('fuel_prices')
-            ->whereIn('station_id', $stationIds)
-            ->whereIn('fuel_type', ['essence', 'gasoil'])
-            ->where('is_available', true)
-            ->get()
-            ->groupBy('station_id');
+        $kpis = [
+            'total' => Station::count(),
+            'verified' => Station::where('is_verified', true)->count(),
+            'pro' => Station::whereIn('subscription_type', ['pro', 'premium'])->count(),
+            'inactive' => Station::where('is_active', false)->count(),
+        ];
 
-        // Villes distinctes pour filtre
-        $cities = DB::table('stations')
-            ->whereNull('deleted_at')
-            ->whereNotNull('city')
-            ->distinct()
-            ->orderBy('city')
-            ->pluck('city');
+        $cities = Station::select('city')->distinct()->orderBy('city')->pluck('city');
+
+        // Propriétaires approuvés, pour le select obligatoire du formulaire d'ajout
+        $owners = StationOwner::where('status', 'approved')->orderBy('name')->get(['id_station_owner', 'name', 'company_name']);
 
         return view('pages.stations', compact(
-            'stations', 'kpis', 'prices', 'cities',
-            'search', 'plan', 'city', 'status', 'verified', 'total'
+            'stations',
+            'prices',
+            'kpis',
+            'cities',
+            'total',
+            'owners',
+            'search',
+            'plan',
+            'city',
+            'status',
+            'verified'
         ));
     }
 
-    // ─────────────────────────────────────────────
-    // SHOW — Détail complet (JSON pour modal)
-    // GET /admin/stations/{id}
-    // ─────────────────────────────────────────────
-    public function show(int $id): JsonResponse
+    public function show(Station $station)
     {
-        $station = DB::table('stations')
-            ->where('id_station', $id)
-            ->whereNull('deleted_at')
-            ->first();
-
-        if (!$station) {
-            return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
-        }
-
-        $prices   = DB::table('fuel_prices')->where('station_id', $id)->orderBy('fuel_type')->get();
-        $services = DB::table('station_services')->where('station_id', $id)->pluck('service');
-
-        $monthStart = now()->startOfMonth();
-        $viewStats  = DB::table('station_views')
-            ->where('station_id', $id)
-            ->where('viewed_at', '>=', $monthStart)
-            ->selectRaw("action, COUNT(*) as count")
-            ->groupBy('action')
-            ->get()
-            ->keyBy('action');
-
-        $lastPriceUpdate = DB::table('fuel_price_history')
-            ->where('station_id', $id)
-            ->orderByDesc('changed_at')
-            ->value('changed_at');
-
-        $activeSub = DB::table('subscriptions')
-            ->where('subscribable_type', 'App\Models\Station')
-            ->where('subscribable_id', $id)
-            ->where('status', 'active')
-            ->orderByDesc('expires_at')
-            ->first(['plan', 'expires_at', 'billing_cycle']);
-
-        $avgRating = DB::table('reviews')
-            ->where('reviewable_type', 'App\Models\Station')
-            ->where('reviewable_id', $id)
-            ->where('is_approved', true)
-            ->whereNull('deleted_at')
-            ->selectRaw('AVG(rating) as avg, COUNT(*) as total')
-            ->first();
+        $station->load('services', 'fuelPrices', 'owner', 'team');
 
         return response()->json([
             'success' => true,
-            'data'    => array_merge((array) $station, [
-                'prices'           => $prices,
-                'services'         => $services,
-                'stats_month'      => $viewStats,
-                'last_price_update'=> $lastPriceUpdate,
-                'subscription'     => $activeSub,
-                'rating'           => [
-                    'avg'   => round($avgRating->avg ?? 0, 1),
-                    'total' => $avgRating->total ?? 0,
-                ],
-            ]),
+            'data' => [
+                'id_station' => $station->id_station,
+                'name' => $station->name,
+                'city' => $station->city,
+                'address' => $station->address,
+                'phone' => $station->phone,
+                'views_count' => $station->views_count,
+                'subscription_type' => $station->subscription_type,
+                'is_verified' => $station->is_verified,
+                'is_active' => $station->is_active,
+                'owner' => $station->owner ? [
+                    'id_station_owner' => $station->owner->id_station_owner,
+                    'name' => $station->owner->name,
+                ] : null,
+                'prices' => $station->fuelPrices->map(fn($p) => [
+                    'fuel_type' => $p->fuel_type,
+                    'price' => $p->price,
+                    'is_available' => $p->is_available,
+                ]),
+                'services' => $station->services->pluck('service'),
+                'team' => $station->team->map(fn($m) => [
+                    'id_station_owner' => $m->id_station_owner,
+                    'name' => $m->name,
+                    'email' => $m->email,
+                    'role' => $m->pivot->role,
+                    'pivot_id' => $m->pivot->id_stat_owner_stat,
+                ]),
+            ],
         ]);
     }
 
-    // ─────────────────────────────────────────────
-    // STORE — Créer une station
-    // POST /admin/stations
-    // ─────────────────────────────────────────────
-    public function store(Request $request): JsonResponse
+    /**
+     * Corrigé : owner_id est obligatoire (NOT NULL + FK) dans la migration,
+     * il manquait totalement dans l'ancien formulaire. Le champ "brand" a été
+     * retiré car il n'existe pas dans la table stations.
+     */
+    public function store(Request $request)
     {
-        $validated = $request->validate([
-            'name'              => 'required|string|max:150',
-            'brand'             => 'nullable|string|max:100',
-            'address'           => 'required|string|max:255',
-            'city'              => 'required|string|max:100',
-            'latitude'          => 'required|numeric|between:-90,90',
-            'longitude'         => 'required|numeric|between:-180,180',
-            'phone'             => 'nullable|string|max:20',
-            'whatsapp'          => 'nullable|string|max:20',
-            'opens_at'          => 'nullable|date_format:H:i',
-            'closes_at'         => 'nullable|date_format:H:i',
-            'is_open_24h'       => 'sometimes|boolean',
-            'subscription_type' => 'required|in:free,pro,premium',
-            // Prix carburant (optionnels)
-            'price_essence'     => 'nullable|numeric|min:0',
-            'price_gasoil'      => 'nullable|numeric|min:0',
-            'price_sans_plomb'  => 'nullable|numeric|min:0',
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'address' => 'required|string|max:255',
+            'city' => 'required|string|max:255',
+            'country' => 'nullable|string|max:3',
+            'latitude' => 'required|numeric',
+            'longitude' => 'required|numeric',
+            'phone' => 'nullable|string|max:20',
+            'whatsapp' => 'nullable|string|max:20',
+            'opens_at' => 'nullable',
+            'closes_at' => 'nullable',
+            'is_open_24h' => 'boolean',
+            'subscription_type' => 'in:free,pro,premium',
+            'description' => 'nullable|string',
+            'owner_id' => 'required|exists:station_owners,id_station_owner',
         ]);
 
-        $stationId = DB::table('stations')->insertGetId([
-            'name'              => $validated['name'],
-            'brand'             => $validated['brand'] ?? null,
-            'address'           => $validated['address'],
-            'city'              => $validated['city'],
-            'country'           => 'CI',
-            'latitude'          => $validated['latitude'],
-            'longitude'         => $validated['longitude'],
-            'phone'             => $validated['phone'] ?? null,
-            'whatsapp'          => $validated['whatsapp'] ?? null,
-            'opens_at'          => !empty($validated['is_open_24h']) ? null : ($validated['opens_at'] ?? null),
-            'closes_at'         => !empty($validated['is_open_24h']) ? null : ($validated['closes_at'] ?? null),
-            'is_open_24h'       => !empty($validated['is_open_24h']),
-            'subscription_type' => $validated['subscription_type'],
-            'is_active'         => true,
-            'is_verified'       => false,
-            'views_count'       => 0,
-            'created_at'        => now(),
-            'updated_at'        => now(),
+        $station = Station::create($data);
+
+        // Lie automatiquement le propriétaire dans l'équipe avec le rôle "owner"
+        StationOwnerStation::create([
+            'owner_id' => $data['owner_id'],
+            'station_id' => $station->id_station,
+            'role' => 'owner',
         ]);
 
-        // Insérer les prix carburant fournis
-        $fuelMap = [
-            'essence'    => $validated['price_essence']    ?? null,
-            'gasoil'     => $validated['price_gasoil']     ?? null,
-            'sans_plomb' => $validated['price_sans_plomb'] ?? null,
-        ];
-
-        foreach ($fuelMap as $type => $price) {
-            if ($price !== null) {
-                DB::table('fuel_prices')->insert([
-                    'station_id'       => $stationId,
-                    'fuel_type'        => $type,
-                    'price'            => $price,
-                    'is_available'     => true,
-                    'updated_at_price' => now(),
-                    'created_at'       => now(),
-                    'updated_at'       => now(),
+        // Prix carburant optionnels saisis dans le formulaire rapide
+        foreach (['essence', 'gasoil', 'sans_plomb', 'super', 'gpl'] as $type) {
+            $key = 'price_' . $type;
+            if ($request->filled($key)) {
+                FuelPrice::create([
+                    'station_id' => $station->id_station,
+                    'fuel_type' => $type,
+                    'price' => $request->input($key),
+                    'is_available' => true,
                 ]);
             }
         }
 
-        $station = DB::table('stations')->where('id_station', $stationId)->first();
+        return response()->json([
+            'success' => true,
+            'message' => 'Station ajoutée avec succès',
+            'data' => $station,
+        ]);
+    }
+
+    public function updatePrices(Request $request, Station $station)
+    {
+        $prices = $request->input('prices', []);
+
+        foreach ($prices as $p) {
+            FuelPrice::updateOrCreate(
+                ['station_id' => $station->id_station, 'fuel_type' => $p['fuel_type']],
+                [
+                    'price' => $p['price'],
+                    'is_available' => $p['is_available'] ?? true,
+                    'updated_at_price' => now(),
+                ]
+            );
+        }
+
+        return response()->json(['success' => true, 'message' => 'Prix mis à jour']);
+    }
+
+    /**
+     * Nouveau : gestion des services de la station (table station_services),
+     * absente du formulaire d'origine — la station ne pouvait pas être éditée.
+     */
+    public function updateServices(Request $request, Station $station)
+    {
+        $selected = $request->input('services', []); // tableau de clés ex: ['wifi','parking']
+
+        $station->services()->delete();
+
+        foreach ($selected as $service) {
+            StationService::create([
+                'station_id' => $station->id_station,
+                'service' => $service,
+            ]);
+        }
+
+        return response()->json(['success' => true, 'message' => 'Services mis à jour']);
+    }
+
+    /**
+     * Nouveau : gestion de l'équipe (table station_owner_station) — ajouter
+     * un manager/employee existant (par email) à la station.
+     */
+    public function addTeamMember(Request $request, Station $station)
+    {
+        $data = $request->validate([
+            'email' => 'required|email|exists:station_owners,email',
+            'role' => 'required|in:owner,manager,employee',
+        ]);
+
+        $owner = StationOwner::where('email', $data['email'])->first();
+
+        $exists = StationOwnerStation::where('station_id', $station->id_station)
+            ->where('owner_id', $owner->id_station_owner)
+            ->exists();
+
+        if ($exists) {
+            return response()->json(['success' => false, 'message' => 'Ce membre est déjà rattaché à cette station']);
+        }
+
+        StationOwnerStation::create([
+            'station_id' => $station->id_station,
+            'owner_id' => $owner->id_station_owner,
+            'role' => $data['role'],
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Membre ajouté à l\'équipe']);
+    }
+
+    public function removeTeamMember(Station $station, StationOwnerStation $member)
+    {
+        if ($member->station_id !== $station->id_station) {
+            return response()->json(['success' => false, 'message' => 'Membre introuvable pour cette station'], 404);
+        }
+
+        if ($member->role === 'owner') {
+            return response()->json(['success' => false, 'message' => 'Impossible de retirer le propriétaire principal']);
+        }
+
+        $member->delete();
+
+        return response()->json(['success' => true, 'message' => 'Membre retiré de l\'équipe']);
+    }
+
+    public function verify(Station $station)
+    {
+        $station->is_verified = ! $station->is_verified;
+        $station->save();
 
         return response()->json([
             'success' => true,
-            'message' => 'Station créée avec succès.',
-            'data'    => $station,
-        ], 201);
+            'message' => $station->is_verified ? 'Station vérifiée' : 'Badge retiré',
+            'is_verified' => $station->is_verified,
+        ]);
     }
 
-    // ─────────────────────────────────────────────
-    // UPDATE PRICES — Mettre à jour les prix d'une station
-    // POST /admin/stations/{id}/prices
-    // Body: { prices: [{ fuel_type, price, is_available }] }
-    // ─────────────────────────────────────────────
-    public function updatePrices(Request $request, int $id): JsonResponse
+    public function toggle(Station $station)
     {
-        $request->validate([
-            'prices'                => 'required|array|min:1',
-            'prices.*.fuel_type'    => 'required|in:essence,gasoil,sans_plomb,super,gpl',
-            'prices.*.price'        => 'required|numeric|min:0',
-            'prices.*.is_available' => 'sometimes|boolean',
-        ]);
-
-        $station = DB::table('stations')->where('id_station', $id)->whereNull('deleted_at')->first();
-        if (!$station) {
-            return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
-        }
-
-        $historyRows = [];
-
-        foreach ($request->prices as $item) {
-            $fuelType = $item['fuel_type'];
-            $newPrice = (float) $item['price'];
-
-            $existing = DB::table('fuel_prices')
-                ->where('station_id', $id)
-                ->where('fuel_type', $fuelType)
-                ->first();
-
-            DB::table('fuel_prices')->updateOrInsert(
-                ['station_id' => $id, 'fuel_type' => $fuelType],
-                [
-                    'price'            => $newPrice,
-                    'is_available'     => $item['is_available'] ?? true,
-                    'updated_at_price' => now(),
-                    'updated_at'       => now(),
-                    'created_at'       => now(),
-                ]
-            );
-
-            if ($existing && (float) $existing->price !== $newPrice) {
-                $historyRows[] = [
-                    'station_id'      => $id,
-                    'fuel_type'       => $fuelType,
-                    'old_price'       => $existing->price,
-                    'new_price'       => $newPrice,
-                    'changed_by_type' => 'admin',
-                    'changed_by_id'   => auth()->id(),
-                    'changed_at'      => now(),
-                    'created_at'      => now(),
-                    'updated_at'      => now(),
-                ];
-            }
-        }
-
-        if (!empty($historyRows)) {
-            DB::table('fuel_price_history')->insert($historyRows);
-        }
-
-        $prices = DB::table('fuel_prices')->where('station_id', $id)->orderBy('fuel_type')->get();
-
-        return response()->json(['success' => true, 'message' => 'Prix mis à jour.', 'data' => $prices]);
-    }
-
-    // ─────────────────────────────────────────────
-    // VERIFY — Attribuer / retirer le badge vérifié
-    // POST /admin/stations/{id}/verify
-    // ─────────────────────────────────────────────
-    public function verify(int $id): JsonResponse
-    {
-        $station = DB::table('stations')->where('id_station', $id)->whereNull('deleted_at')->first();
-        if (!$station) {
-            return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
-        }
-
-        $newStatus = !$station->is_verified;
-        DB::table('stations')->where('id_station', $id)->update([
-            'is_verified' => $newStatus,
-            'updated_at'  => now(),
-        ]);
+        $station->is_active = ! $station->is_active;
+        $station->save();
 
         return response()->json([
-            'success'     => true,
-            'message'     => $newStatus ? 'Badge vérifié attribué.' : 'Badge vérifié retiré.',
-            'is_verified' => $newStatus,
+            'success' => true,
+            'message' => $station->is_active ? 'Station activée' : 'Station désactivée',
+            'is_active' => $station->is_active,
         ]);
     }
 
-    // ─────────────────────────────────────────────
-    // TOGGLE — Activer / désactiver
-    // POST /admin/stations/{id}/toggle
-    // ─────────────────────────────────────────────
-    public function toggle(int $id): JsonResponse
+    public function destroy(Station $station)
     {
-        $station = DB::table('stations')->where('id_station', $id)->whereNull('deleted_at')->first();
-        if (!$station) {
-            return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
-        }
+        $station->delete();
 
-        $newStatus = !$station->is_active;
-        DB::table('stations')->where('id_station', $id)->update([
-            'is_active'  => $newStatus,
-            'updated_at' => now(),
-        ]);
-
-        return response()->json([
-            'success'   => true,
-            'message'   => $newStatus ? 'Station activée.' : 'Station désactivée.',
-            'is_active' => $newStatus,
-        ]);
+        return response()->json(['success' => true, 'message' => 'Station supprimée']);
     }
 
-    // ─────────────────────────────────────────────
-    // DESTROY — Soft delete
-    // DELETE /admin/stations/{id}
-    // ─────────────────────────────────────────────
-    public function destroy(int $id): JsonResponse
-    {
-        $exists = DB::table('stations')->where('id_station', $id)->whereNull('deleted_at')->exists();
-        if (!$exists) {
-            return response()->json(['success' => false, 'message' => 'Station introuvable.'], 404);
-        }
-
-        DB::table('stations')->where('id_station', $id)->update([
-            'deleted_at' => now(),
-            'is_active'  => false,
-        ]);
-
-        return response()->json(['success' => true, 'message' => 'Station supprimée.']);
-    }
-
-    // ─────────────────────────────────────────────
-    // EXPORT CSV
-    // GET /admin/stations/export
-    // ─────────────────────────────────────────────
     public function export(Request $request)
     {
-        $query = DB::table('stations')->whereNull('deleted_at')
-            ->select('id_station', 'name', 'brand', 'city', 'address', 'phone',
-                     'subscription_type', 'is_verified', 'is_active', 'views_count', 'created_at');
+        $stations = Station::with('owner')->get();
+        $filename = 'stations_' . now()->format('Y-m-d') . '.csv';
 
-        if ($request->filled('plan'))   $query->where('subscription_type', $request->plan);
-        if ($request->filled('city'))   $query->where('city', $request->city);
-        if ($request->boolean('verified')) $query->where('is_verified', true);
+        $callback = function () use ($stations) {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, ['Nom', 'Ville', 'Adresse', 'Téléphone', 'Plan', 'Propriétaire', 'Vérifiée', 'Active']);
+            foreach ($stations as $s) {
+                fputcsv($handle, [
+                    $s->name,
+                    $s->city,
+                    $s->address,
+                    $s->phone,
+                    $s->subscription_type,
+                    $s->owner?->name,
+                    $s->is_verified ? 'Oui' : 'Non',
+                    $s->is_active ? 'Oui' : 'Non',
+                ]);
+            }
+            fclose($handle);
+        };
 
-        $rows = $query->orderByDesc('created_at')->get();
-
-        $headers = ['ID', 'Nom', 'Marque', 'Ville', 'Adresse', 'Téléphone', 'Plan', 'Vérifiée', 'Active', 'Vues', 'Créée le'];
-        $csv = collect([$headers])->merge($rows->map(fn ($r) => [
-            $r->id_station, $r->name, $r->brand ?? '', $r->city, $r->address,
-            $r->phone ?? '', $r->subscription_type,
-            $r->is_verified ? 'Oui' : 'Non',
-            $r->is_active   ? 'Oui' : 'Non',
-            $r->views_count, $r->created_at,
-        ]))->map(fn ($row) => implode(';', array_map(fn ($v) => '"' . str_replace('"', '""', $v) . '"', $row)))->implode("\n");
-
-        return response($csv, 200, [
-            'Content-Type'        => 'text/csv; charset=UTF-8',
-            'Content-Disposition' => 'attachment; filename="stations_' . now()->format('Y-m-d') . '.csv"',
-        ]);
+        return response()->streamDownload($callback, $filename, ['Content-Type' => 'text/csv']);
     }
 }
